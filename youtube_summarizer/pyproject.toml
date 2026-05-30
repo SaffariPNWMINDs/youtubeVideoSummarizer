@@ -1,0 +1,36 @@
+[tool.poetry]
+name = "youtube-summarizer"
+version = "0.1.0"
+description = "Summarize the top YouTube videos for any topic using LLMs"
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+packages = [{ include = "youtube_summarizer", from = "src" }]
+
+[tool.poetry.dependencies]
+python            = "^3.11"
+anthropic         = "^0.28.0"
+google-api-python-client = "^2.100.0"
+youtube-transcript-api   = "^0.6.1"
+pydantic          = "^2.5.0"
+pydantic-settings = "^2.1.0"
+python-dotenv     = "^1.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest        = "^7.4.0"
+pytest-mock   = "^3.11.0"
+ruff          = "^0.1.0"    # linter + formatter (replaces flake8 + black)
+
+[tool.poetry.scripts]
+# After `poetry install`, you can run: yt-summarize -q "your topic"
+yt-summarize = "youtube_summarizer.cli.main:main"
+
+[build-system]
+requires      = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length    = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
