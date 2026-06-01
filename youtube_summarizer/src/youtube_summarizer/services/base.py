@@ -53,8 +53,6 @@ class BaseSummarizerService(ABC):
         ...
 
     @abstractmethod
-    def aggregate_summaries(
-        self, query: str, summaries: List[VideoSummary]
-    ) -> AggregatedSummary:
+    def aggregate_summaries(self, query: str, summaries: List[VideoSummary]) -> AggregatedSummary:
         """Synthesize all per-video summaries into one final report."""
         ...
