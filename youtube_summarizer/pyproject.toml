@@ -20,6 +20,7 @@ openai = "^2.39.0"
 pytest        = "^7.4.0"
 pytest-mock   = "^3.11.0"
 ruff          = "^0.1.0"    # linter + formatter (replaces flake8 + black)
+pytest-cov = "^7.1.0"
 
 [tool.poetry.scripts]
 # After `poetry install`, you can run: yt-summarize -q "your topic"

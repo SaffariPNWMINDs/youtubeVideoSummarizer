@@ -38,14 +38,14 @@ def print_result(result) -> None:
     print(f"  {result.video_count} videos analysed")
     print(divider)
 
-    print(f"\n📋  OVERVIEW\n")
+    print("\n📋  OVERVIEW\n")
     print(f"  {result.final_summary}\n")
 
-    print(f"🔑  KEY TAKEAWAYS\n")
+    print("🔑  KEY TAKEAWAYS\n")
     for i, takeaway in enumerate(result.key_takeaways, 1):
         print(f"  {i:>2}. {takeaway}")
 
-    print(f"\n📺  VIDEOS ANALYSED\n")
+    print("\n📺  VIDEOS ANALYSED\n")
     for vs in result.video_summaries:
         print(f"  {vs.view_count:>12,} views  {vs.title[:55]}")
         print(f"  {' ' * 14}  {vs.video_url}")

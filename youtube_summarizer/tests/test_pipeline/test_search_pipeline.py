@@ -6,9 +6,7 @@ abort thresholds, correct sequencing — without hitting any real API.
 All services are replaced with simple in-memory fakes.
 """
 
-import pytest
 from typing import List, Optional
-from unittest.mock import MagicMock
 
 from youtube_summarizer.pipeline.search_pipeline import SearchPipeline
 from youtube_summarizer.models.video import Video

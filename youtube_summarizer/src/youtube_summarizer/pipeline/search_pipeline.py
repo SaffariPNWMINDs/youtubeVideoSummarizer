@@ -75,7 +75,7 @@ class SearchPipeline:
             transcript = self._transcript.fetch(video)
             if transcript is None:
                 skipped += 1
-                logger.warning(f"  Skipped (no transcript)")
+                logger.warning("  Skipped (no transcript)")
                 continue
 
             try:
