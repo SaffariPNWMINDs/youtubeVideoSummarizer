@@ -7,10 +7,10 @@ readme = "README.md"
 packages = [{ include = "youtube_summarizer", from = "src" }]
 
 [tool.poetry.dependencies]
-python            = "^3.11"
+python            = ">=3.11, <3.15"
 anthropic         = "^0.28.0"
 google-api-python-client = "^2.100.0"
-youtube-transcript-api   = "^0.6.1"
+youtube-transcript-api   = "^1.2.4"
 pydantic          = "^2.5.0"
 pydantic-settings = "^2.1.0"
 python-dotenv     = "^1.0.0"

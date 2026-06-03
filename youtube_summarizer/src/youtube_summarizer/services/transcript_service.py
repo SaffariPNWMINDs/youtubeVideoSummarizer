@@ -35,10 +35,11 @@ class YouTubeTranscriptService(BaseTranscriptService):
         logger.info(f"Fetching transcript for '{video.title[:60]}'")
 
         try:
-            raw_segments = YouTubeTranscriptApi.get_transcript(
+            ytt_api = YouTubeTranscriptApi()
+            raw_segments = ytt_api.fetch(
                 video.video_id,
                 languages=_PREFERRED_LANGUAGES,
-            )
+            ).to_raw_data()
             transcript = self._build_transcript(video.video_id, raw_segments)
             logger.info(
                 f"  ✓ {transcript.word_count:,} words "
