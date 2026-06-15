@@ -117,10 +117,71 @@ body {
   to { transform: rotate(360deg); }
 }
 
-.results {
+.results-layout {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.results-left {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 32px;
+  min-width: 0;
+}
+
+.player-panel {
+  width: 420px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.player-panel iframe {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: none;
+  border-radius: 12px;
+}
+
+.close-btn {
+  background: #2a2a2a;
+  border: 1px solid #333;
+  color: #888;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: color 0.2s;
+}
+
+.close-btn:hover {
+  color: #e8e8e8;
+}
+
+.watch-btn {
+  margin-top: 12px;
+  background: transparent;
+  border: 1px solid #ff4444;
+  color: #ff4444;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: background 0.2s, color 0.2s;
+}
+
+.watch-btn:hover {
+  background: #ff4444;
+  color: white;
+}
+
+.video-card.active {
+  border-color: #ff4444;
 }
 
 .summary-section,

@@ -9,6 +9,7 @@ function App() {
   const [final, setFinal] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [activeVideoId, setActiveVideoId] = useState(null)
 
   async function handleSummarize() {
     setLoading(true)
@@ -16,6 +17,7 @@ function App() {
     setVideos([])
     setFinal(null)
     setStatus("Starting...")
+    setActiveVideoId(null)
 
     try {
       const response = await fetch("http://localhost:8000/summarize/stream", {
@@ -24,7 +26,6 @@ function App() {
         body: JSON.stringify({ query, provider, max_videos: 5 }),
       })
 
-      // Read the response as a stream of text chunks
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
 
@@ -32,7 +33,6 @@ function App() {
         const { done, value } = await reader.read()
         if (done) break
 
-        // Each chunk may contain multiple newline-delimited JSON lines
         const lines = decoder.decode(value).split("\n").filter(Boolean)
         for (const line of lines) {
           const chunk = JSON.parse(line)
@@ -40,7 +40,6 @@ function App() {
           if (chunk.type === "status") {
             setStatus(chunk.message)
           } else if (chunk.type === "video") {
-            // Append each video as it arrives — React re-renders immediately
             setVideos((prev) => [...prev, chunk.data])
           } else if (chunk.type === "final") {
             setFinal(chunk.data)
@@ -59,6 +58,8 @@ function App() {
     }
   }
 
+  const hasResults = videos.length > 0 || final
+
   return (
     <div className="app">
       <header className="header">
@@ -74,12 +75,10 @@ function App() {
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleSummarize()}
         />
-
         <select value={provider} onChange={(e) => setProvider(e.target.value)}>
           <option value="openai">OpenAI</option>
           <option value="claude">Claude</option>
         </select>
-
         <button onClick={handleSummarize} disabled={loading || !query.trim()}>
           {loading ? "Summarizing..." : "Summarize"}
         </button>
@@ -94,42 +93,65 @@ function App() {
         </div>
       )}
 
-      {videos.length > 0 && (
-        <section className="videos-section">
-          <h2>Videos Analyzed</h2>
-          {videos.map((v) => (
-            <div key={v.video_id} className="video-card">
-              <a href={v.video_url} target="_blank" rel="noreferrer">
-                <h3>{v.title}</h3>
-              </a>
-              <p className="meta">{v.channel_name} · {v.view_count.toLocaleString()} views</p>
-              <p>{v.raw_summary}</p>
-              <ul>
-                {v.key_points.map((p, i) => (
-                  <li key={i}>{p}</li>
+      {hasResults && (
+        <div className="results-layout">
+          {/* Left column — video list + summary */}
+          <div className="results-left">
+            {videos.length > 0 && (
+              <section className="videos-section">
+                <h2>Videos Analyzed</h2>
+                {videos.map((v) => (
+                  <div key={v.video_id} className={`video-card ${activeVideoId === v.video_id ? "active" : ""}`}>
+                    <h3>{v.title}</h3>
+                    <p className="meta">{v.channel_name} · {v.view_count.toLocaleString()} views</p>
+                    <p>{v.raw_summary}</p>
+                    <ul>
+                      {v.key_points.map((p, i) => (
+                        <li key={i}>{p}</li>
+                      ))}
+                    </ul>
+                    <button
+                      className="watch-btn"
+                      onClick={() => setActiveVideoId(v.video_id === activeVideoId ? null : v.video_id)}
+                    >
+                      {activeVideoId === v.video_id ? "▼ Close" : "▶ Watch Video"}
+                    </button>
+                  </div>
                 ))}
-              </ul>
+              </section>
+            )}
+
+            {final && (
+              <>
+                <section className="summary-section">
+                  <h2>Overview</h2>
+                  <p>{final.final_summary}</p>
+                </section>
+                <section className="takeaways-section">
+                  <h2>Key Takeaways</h2>
+                  <ol>
+                    {final.key_takeaways.map((t, i) => (
+                      <li key={i}>{t}</li>
+                    ))}
+                  </ol>
+                </section>
+              </>
+            )}
+          </div>
+
+          {/* Right column — video player (sticky) */}
+          {activeVideoId && (
+            <div className="player-panel">
+              <iframe
+                src={`https://www.youtube.com/embed/${activeVideoId}`}
+                title="YouTube video player"
+                allowFullScreen
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              />
+              <button className="close-btn" onClick={() => setActiveVideoId(null)}>✕ Close</button>
             </div>
-          ))}
-        </section>
-      )}
-
-      {final && (
-        <>
-          <section className="summary-section">
-            <h2>Overview</h2>
-            <p>{final.final_summary}</p>
-          </section>
-
-          <section className="takeaways-section">
-            <h2>Key Takeaways</h2>
-            <ol>
-              {final.key_takeaways.map((t, i) => (
-                <li key={i}>{t}</li>
-              ))}
-            </ol>
-          </section>
-        </>
+          )}
+        </div>
       )}
     </div>
   )
