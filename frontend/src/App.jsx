@@ -202,8 +202,25 @@ function App() {
                     <p className="meta">{v.channel_name} · {v.view_count.toLocaleString()} views</p>
                     <p>{v.raw_summary}</p>
                     <ul>
-                      {v.key_points.map((p, i) => (
-                        <li key={i}>{p}</li>
+                      {(v.key_points_timed?.length ? v.key_points_timed : v.key_points.map(text => ({ text, timestamp: null }))).map((kp, i) => (
+                        <li key={i}>
+                          {kp.text}
+                          {kp.timestamp != null && (
+                            <button
+                              className="timestamp-btn"
+                              onClick={() => {
+                                setActiveVideoId(v.video_id)
+                                // YouTube embed accepts start= param to seek
+                                document.querySelector(".player-panel iframe")?.setAttribute(
+                                  "src",
+                                  `https://www.youtube.com/embed/${v.video_id}?start=${kp.timestamp}&autoplay=1`
+                                )
+                              }}
+                            >
+                              {Math.floor(kp.timestamp / 60)}:{String(kp.timestamp % 60).padStart(2, "0")}
+                            </button>
+                          )}
+                        </li>
                       ))}
                     </ul>
                     <button

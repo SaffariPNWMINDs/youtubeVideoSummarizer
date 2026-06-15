@@ -31,14 +31,19 @@ class SummarizeRequest(BaseModel):
     duration: Optional[str] = None               # "short" | "medium" | "long"
     min_views: Optional[int] = None              # e.g. 10000
     
+class KeyPointResponse(BaseModel):
+    text: str
+    timestamp: Optional[int] = None
+
 class VideoResponse(BaseModel):
     video_id: str
     title: str
     channel_name: str
     view_count: int
     video_url: str
-    key_points: List[str]       # 3-5 bullet points
-    raw_summary: str            # 2-3 sentence prose summary
+    key_points: List[str]
+    key_points_timed: List[KeyPointResponse] = []
+    raw_summary: str
 
 class SummarizeResponse(BaseModel):
     query: str
@@ -83,6 +88,7 @@ def summarize(request: SummarizeRequest):
                 view_count=vs.view_count,
                 video_url=vs.video_url,
                 key_points=vs.key_points,
+                key_points_timed=[KeyPointResponse(text=kp.text, timestamp=kp.timestamp) for kp in vs.key_points_timed],
                 raw_summary=vs.raw_summary
             ) for vs in result.video_summaries
         ]

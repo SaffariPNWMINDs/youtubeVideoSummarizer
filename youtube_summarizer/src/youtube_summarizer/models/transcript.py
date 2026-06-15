@@ -40,6 +40,26 @@ class Transcript(BaseModel):
     def word_count(self) -> int:
         return len(self.full_text.split())
 
+    def truncate_with_timestamps(self, max_chars: int) -> str:
+        """
+        Returns transcript text with timestamps every ~30 seconds.
+        Format: [MM:SS] sentence text
+        Used when we want the LLM to know where in the video each topic appears.
+        """
+        lines = []
+        last_stamped = -30.0
+        for seg in self.segments:
+            if not seg.text.strip():
+                continue
+            if seg.start - last_stamped >= 30:
+                mins = int(seg.start) // 60
+                secs = int(seg.start) % 60
+                lines.append(f"[{mins:02d}:{secs:02d}]")
+                last_stamped = seg.start
+            lines.append(seg.text.strip())
+        text = " ".join(lines)
+        return text[:max_chars] if len(text) > max_chars else text
+
     def truncate(self, max_chars: int) -> str:
         """
         Returns the full text truncated to max_chars.

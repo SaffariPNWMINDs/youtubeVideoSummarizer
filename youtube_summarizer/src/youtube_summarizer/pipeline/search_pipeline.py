@@ -157,6 +157,7 @@ class SearchPipeline:
                         "view_count": summary.view_count,
                         "video_url": summary.video_url,
                         "key_points": summary.key_points,
+                        "key_points_timed": [{"text": kp.text, "timestamp": kp.timestamp} for kp in summary.key_points_timed],
                         "raw_summary": summary.raw_summary,
                     }
                 })

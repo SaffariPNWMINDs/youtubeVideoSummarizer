@@ -1,6 +1,12 @@
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
 from datetime import datetime
+
+
+class KeyPoint(BaseModel):
+    """A single key point with an optional timestamp (seconds from video start)."""
+    text: str
+    timestamp: Optional[int] = None  # seconds, e.g. 154 → 2:34
 
 
 class VideoSummary(BaseModel):
@@ -11,8 +17,9 @@ class VideoSummary(BaseModel):
     channel_name: str
     view_count: int
     video_url: str
-    key_points: List[str]       # 3-5 bullet points
-    raw_summary: str            # 2-3 sentence prose summary
+    key_points: List[str]                        # plain text fallback
+    key_points_timed: List[KeyPoint] = []        # key points with timestamps
+    raw_summary: str
 
 
 class AggregatedSummary(BaseModel):
