@@ -5,6 +5,7 @@ from typing import List, Optional
 from enum import Enum
 from fastapi import HTTPException, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from youtube_summarizer import factory
 
@@ -42,6 +43,15 @@ class SummarizeResponse(BaseModel):
     key_takeaways: List[str]        # 5-7 top insights across all videos
     final_summary: str              # cross-video synthesis
     
+
+@app.post("/summarize/stream")
+def summarize_stream(request: SummarizeRequest):
+    pipeline = factory.build_pipeline(request.max_videos, request.provider)
+    return StreamingResponse(
+        pipeline.stream(request.query),
+        media_type="application/x-ndjson"
+    )
+
 
 @app.post("/summarize")
 def summarize(request: SummarizeRequest):

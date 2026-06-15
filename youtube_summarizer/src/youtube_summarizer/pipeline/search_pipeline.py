@@ -9,8 +9,9 @@ OOP lesson — Dependency Injection:
     - Single Responsibility: the pipeline orchestrates; services do the work
 """
 
+import json
 import logging
-from typing import Optional
+from typing import Optional, Generator
 
 from youtube_summarizer.models.summary import AggregatedSummary
 from youtube_summarizer.services.base import (
@@ -103,3 +104,64 @@ class SearchPipeline:
         result = self._summarizer.aggregate_summaries(query, video_summaries)
         logger.info("Pipeline complete ✓")
         return result
+
+    def stream(self, query: str) -> Generator[str, None, None]:
+        """
+        Same pipeline as run() but yields NDJSON chunks as work completes.
+        Each yielded string is a JSON line the frontend can render immediately.
+        """
+        def emit(obj: dict) -> str:
+            return json.dumps(obj) + "\n"
+
+        yield emit({"type": "status", "message": "Searching for videos..."})
+
+        videos = self._search.search(query, max_results=self._max_videos)
+        if not videos:
+            yield emit({"type": "error", "message": "No videos found"})
+            return
+
+        yield emit({"type": "status", "message": f"Found {len(videos)} videos. Summarizing..."})
+
+        video_summaries = []
+        skipped = 0
+
+        for i, video in enumerate(videos, 1):
+            yield emit({"type": "status", "message": f"Processing video {i}/{len(videos)}: {video.title[:50]}"})
+
+            transcript = self._transcript.fetch(video)
+            if transcript is None:
+                skipped += 1
+                continue
+
+            try:
+                summary = self._summarizer.summarize_video(video, transcript)
+                video_summaries.append(summary)
+                yield emit({
+                    "type": "video",
+                    "data": {
+                        "video_id": summary.video_id,
+                        "title": summary.title,
+                        "channel_name": summary.channel_name,
+                        "view_count": summary.view_count,
+                        "video_url": summary.video_url,
+                        "key_points": summary.key_points,
+                        "raw_summary": summary.raw_summary,
+                    }
+                })
+            except Exception as e:
+                skipped += 1
+                logger.error(f"Summarization failed: {e}")
+
+        if len(video_summaries) < self._min_summaries:
+            yield emit({"type": "error", "message": f"Only {len(video_summaries)} videos could be summarized (need at least {self._min_summaries})"})
+            return
+
+        yield emit({"type": "status", "message": "Generating final summary..."})
+        result = self._summarizer.aggregate_summaries(query, video_summaries)
+        yield emit({
+            "type": "final",
+            "data": {
+                "key_takeaways": result.key_takeaways,
+                "final_summary": result.final_summary,
+            }
+        })

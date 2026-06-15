@@ -1,5 +1,6 @@
 # Secrets
 .env
+youtube_cookies.txt
 
 # Python
 __pycache__/

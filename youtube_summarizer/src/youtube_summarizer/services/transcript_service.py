@@ -1,5 +1,8 @@
 import logging
+from pathlib import Path
 from typing import Optional
+
+import requests
 
 from youtube_transcript_api import (
     YouTubeTranscriptApi,
@@ -35,7 +38,14 @@ class YouTubeTranscriptService(BaseTranscriptService):
         logger.info(f"Fetching transcript for '{video.title[:60]}'")
 
         try:
-            ytt_api = YouTubeTranscriptApi()
+            cookie_path = Path(__file__).parent.parent.parent.parent / "youtube_cookies.txt"
+            session = requests.Session()
+            if cookie_path.exists():
+                import http.cookiejar
+                jar = http.cookiejar.MozillaCookieJar(str(cookie_path))
+                jar.load()
+                session.cookies = jar
+            ytt_api = YouTubeTranscriptApi(http_client=session)
             raw_segments = ytt_api.fetch(
                 video.video_id,
                 languages=_PREFERRED_LANGUAGES,
