@@ -105,7 +105,13 @@ class SearchPipeline:
         logger.info("Pipeline complete ✓")
         return result
 
-    def stream(self, query: str) -> Generator[str, None, None]:
+    def stream(
+        self,
+        query: str,
+        published_after_year: Optional[int] = None,
+        duration: Optional[str] = None,
+        min_views: Optional[int] = None,
+    ) -> Generator[str, None, None]:
         """
         Same pipeline as run() but yields NDJSON chunks as work completes.
         Each yielded string is a JSON line the frontend can render immediately.
@@ -115,7 +121,13 @@ class SearchPipeline:
 
         yield emit({"type": "status", "message": "Searching for videos..."})
 
-        videos = self._search.search(query, max_results=self._max_videos)
+        videos = self._search.search(
+            query,
+            max_results=self._max_videos,
+            published_after_year=published_after_year,
+            duration=duration,
+            min_views=min_views,
+        )
         if not videos:
             yield emit({"type": "error", "message": "No videos found"})
             return

@@ -26,7 +26,10 @@ class LLMProvider(str, Enum):
 class SummarizeRequest(BaseModel):
     query: str
     max_videos: Optional[int] = 5
-    provider: Optional[LLMProvider] = LLMProvider.openai  # or LLMProvider.claude
+    provider: Optional[LLMProvider] = LLMProvider.openai
+    published_after_year: Optional[int] = None   # e.g. 2020 → only videos from 2020+
+    duration: Optional[str] = None               # "short" | "medium" | "long"
+    min_views: Optional[int] = None              # e.g. 10000
     
 class VideoResponse(BaseModel):
     video_id: str
@@ -48,7 +51,12 @@ class SummarizeResponse(BaseModel):
 def summarize_stream(request: SummarizeRequest):
     pipeline = factory.build_pipeline(request.max_videos, request.provider)
     return StreamingResponse(
-        pipeline.stream(request.query),
+        pipeline.stream(
+            request.query,
+            published_after_year=request.published_after_year,
+            duration=request.duration,
+            min_views=request.min_views,
+        ),
         media_type="application/x-ndjson"
     )
 

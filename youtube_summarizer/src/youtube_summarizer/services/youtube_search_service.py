@@ -1,5 +1,6 @@
 import logging
-from typing import List
+from datetime import datetime, timezone
+from typing import List, Optional
 
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -30,18 +31,27 @@ class YouTubeSearchService(BaseVideoSearchService):
         )
         logger.debug("YouTubeSearchService initialised")
 
-    def search(self, query: str, max_results: int = 10) -> List[Video]:
+    def search(
+        self,
+        query: str,
+        max_results: int = 10,
+        published_after_year: Optional[int] = None,
+        duration: Optional[str] = None,
+        min_views: Optional[int] = None,
+    ) -> List[Video]:
         logger.info(f"Searching YouTube for: '{query}' (max {max_results})")
 
         try:
-            video_ids = self._search_video_ids(query, max_results)
+            video_ids = self._search_video_ids(query, max_results, published_after_year, duration)
             if not video_ids:
                 logger.warning("YouTube search returned no results")
                 return []
 
             videos = self._fetch_video_details(video_ids)
 
-            # Sort by view count descending so the most-watched come first
+            if min_views:
+                videos = [v for v in videos if v.view_count >= min_views]
+
             videos.sort(key=lambda v: v.view_count, reverse=True)
             logger.info(f"Returning {len(videos)} videos for '{query}'")
             return videos
@@ -54,21 +64,29 @@ class YouTubeSearchService(BaseVideoSearchService):
     #  Private helpers                                                     #
     # ------------------------------------------------------------------ #
 
-    def _search_video_ids(self, query: str, max_results: int) -> List[str]:
+    def _search_video_ids(
+        self,
+        query: str,
+        max_results: int,
+        published_after_year: Optional[int] = None,
+        duration: Optional[str] = None,
+    ) -> List[str]:
         """Step 1: get video IDs from search.list."""
-        response = (
-            self._client.search()
-            .list(
-                q=query,
-                part="id",
-                maxResults=max_results,
-                type="video",
-                order="relevance",
-                relevanceLanguage="en",
-                safeSearch="moderate",
-            )
-            .execute()
+        params = dict(
+            q=query,
+            part="id",
+            maxResults=max_results,
+            type="video",
+            order="relevance",
+            relevanceLanguage="en",
+            safeSearch="moderate",
         )
+        if published_after_year:
+            params["publishedAfter"] = datetime(published_after_year, 1, 1, tzinfo=timezone.utc).isoformat()
+        if duration in ("short", "medium", "long"):
+            params["videoDuration"] = duration
+
+        response = self._client.search().list(**params).execute()
         return [
             item["id"]["videoId"]
             for item in response.get("items", [])

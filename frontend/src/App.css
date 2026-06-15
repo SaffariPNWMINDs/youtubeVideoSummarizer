@@ -86,6 +86,101 @@ body {
   cursor: not-allowed;
 }
 
+.filters-toggle {
+  color: #888;
+  font-size: 0.9rem;
+  cursor: pointer;
+  margin-bottom: 8px;
+  user-select: none;
+}
+
+.filters-toggle:hover {
+  color: #e8e8e8;
+}
+
+.filters-panel {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin-bottom: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 180px;
+}
+
+.filter-group label {
+  font-size: 0.9rem;
+  color: #aaa;
+}
+
+.filter-group input[type="range"] {
+  accent-color: #ff4444;
+  width: 100%;
+}
+
+.filter-group select {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  background: #111;
+  color: #e8e8e8;
+  font-size: 0.9rem;
+}
+
+.range-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: #555;
+}
+
+.radio-group {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.radio-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  color: #ccc;
+  cursor: pointer;
+  position: relative;
+}
+
+.radio-option input[type="radio"] {
+  accent-color: #ff4444;
+}
+
+.tooltip {
+  display: none;
+  position: absolute;
+  bottom: 125%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #333;
+  color: #e8e8e8;
+  font-size: 0.75rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.radio-option:hover .tooltip {
+  display: block;
+}
+
 .error {
   background: #2a1010;
   border: 1px solid #ff4444;

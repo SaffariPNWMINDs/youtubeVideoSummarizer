@@ -1,6 +1,20 @@
 import { useState } from "react"
 import "./App.css"
 
+const DURATION_OPTIONS = [
+  { value: "short", label: "Short", tooltip: "Under 4 minutes" },
+  { value: "medium", label: "Medium", tooltip: "Between 4 and 20 minutes" },
+  { value: "long", label: "Long", tooltip: "Over 20 minutes" },
+]
+
+const MIN_VIEWS_OPTIONS = [
+  { value: "", label: "Any" },
+  { value: "1000", label: "1K+" },
+  { value: "10000", label: "10K+" },
+  { value: "100000", label: "100K+" },
+  { value: "1000000", label: "1M+" },
+]
+
 function App() {
   const [query, setQuery] = useState("")
   const [provider, setProvider] = useState("openai")
@@ -11,6 +25,13 @@ function App() {
   const [error, setError] = useState("")
   const [activeVideoId, setActiveVideoId] = useState(null)
 
+  // Advanced filters
+  const [showFilters, setShowFilters] = useState(false)
+  const [publishedAfterYear, setPublishedAfterYear] = useState(2010)
+  const [duration, setDuration] = useState("")
+  const [minViews, setMinViews] = useState("")
+  const [maxVideos, setMaxVideos] = useState(5)
+
   async function handleSummarize() {
     setLoading(true)
     setError("")
@@ -20,10 +41,19 @@ function App() {
     setActiveVideoId(null)
 
     try {
+      const body = {
+        query,
+        provider,
+        max_videos: maxVideos,
+        published_after_year: publishedAfterYear > 2010 ? publishedAfterYear : null,
+        duration: duration || null,
+        min_views: minViews ? parseInt(minViews) : null,
+      }
+
       const response = await fetch("http://localhost:8000/summarize/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, provider, max_videos: 5 }),
+        body: JSON.stringify(body),
       })
 
       const reader = response.body.getReader()
@@ -84,6 +114,73 @@ function App() {
         </button>
       </div>
 
+      {/* Advanced Filters */}
+      <div className="filters-toggle" onClick={() => setShowFilters(!showFilters)}>
+        {showFilters ? "▲" : "▼"} Advanced filters
+      </div>
+
+      {showFilters && (
+        <div className="filters-panel">
+
+          <div className="filter-group">
+            <label>Published after: <strong>{publishedAfterYear === 2010 ? "Any year" : publishedAfterYear}</strong></label>
+            <input
+              type="range"
+              min="2010"
+              max="2026"
+              value={publishedAfterYear}
+              onChange={(e) => setPublishedAfterYear(parseInt(e.target.value))}
+            />
+            <div className="range-labels"><span>2010</span><span>2026</span></div>
+          </div>
+
+          <div className="filter-group">
+            <label>Duration</label>
+            <div className="radio-group">
+              <label className="radio-option">
+                <input type="radio" name="duration" value="" checked={duration === ""} onChange={() => setDuration("")} />
+                Any
+              </label>
+              {DURATION_OPTIONS.map((opt) => (
+                <label key={opt.value} className="radio-option" title={opt.tooltip}>
+                  <input
+                    type="radio"
+                    name="duration"
+                    value={opt.value}
+                    checked={duration === opt.value}
+                    onChange={() => setDuration(opt.value)}
+                  />
+                  {opt.label}
+                  <span className="tooltip">{opt.tooltip}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="filter-group">
+            <label>Minimum views</label>
+            <select value={minViews} onChange={(e) => setMinViews(e.target.value)}>
+              {MIN_VIEWS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="filter-group">
+            <label>Number of videos: <strong>{maxVideos}</strong></label>
+            <input
+              type="range"
+              min="3"
+              max="20"
+              value={maxVideos}
+              onChange={(e) => setMaxVideos(parseInt(e.target.value))}
+            />
+            <div className="range-labels"><span>3</span><span>20</span></div>
+          </div>
+
+        </div>
+      )}
+
       {error && <div className="error">{error}</div>}
 
       {status && (
@@ -95,7 +192,6 @@ function App() {
 
       {hasResults && (
         <div className="results-layout">
-          {/* Left column — video list + summary */}
           <div className="results-left">
             {videos.length > 0 && (
               <section className="videos-section">
@@ -139,7 +235,6 @@ function App() {
             )}
           </div>
 
-          {/* Right column — video player (sticky) */}
           {activeVideoId && (
             <div className="player-panel">
               <iframe
