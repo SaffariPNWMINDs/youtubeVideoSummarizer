@@ -4,11 +4,19 @@ from pydantic import BaseModel
 from typing import List, Optional
 from enum import Enum
 from fastapi import HTTPException, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from youtube_summarizer import factory
 
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:5174"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class LLMProvider(str, Enum):
     openai = "openai"
