@@ -11,7 +11,8 @@ OOP lesson — Dependency Injection:
 
 import json
 import logging
-from typing import Optional, Generator
+import re
+from typing import Optional, Generator, List
 
 from youtube_summarizer.models.summary import AggregatedSummary
 from youtube_summarizer.services.base import (
@@ -179,3 +180,82 @@ class SearchPipeline:
                 "final_summary": result.final_summary,
             }
         })
+
+    def stream_from_urls(self, urls: List[str]) -> Generator[str, None, None]:
+        """Skip search — summarize a user-provided list of YouTube URLs."""
+        def emit(obj: dict) -> str:
+            return json.dumps(obj) + "\n"
+
+        video_ids = [_extract_video_id(u) for u in urls]
+        video_ids = [vid for vid in video_ids if vid]
+
+        if not video_ids:
+            yield emit({"type": "error", "message": "No valid YouTube URLs found"})
+            return
+
+        yield emit({"type": "status", "message": f"Fetching metadata for {len(video_ids)} videos..."})
+        videos = self._search.fetch_by_ids(video_ids)
+
+        if not videos:
+            yield emit({"type": "error", "message": "Could not fetch video metadata"})
+            return
+
+        yield emit({"type": "status", "message": f"Summarizing {len(videos)} videos..."})
+
+        video_summaries = []
+        skipped = 0
+
+        for i, video in enumerate(videos, 1):
+            yield emit({"type": "status", "message": f"Processing video {i}/{len(videos)}: {video.title[:50]}"})
+
+            transcript = self._transcript.fetch(video)
+            if transcript is None:
+                skipped += 1
+                continue
+
+            try:
+                summary = self._summarizer.summarize_video(video, transcript)
+                video_summaries.append(summary)
+                yield emit({
+                    "type": "video",
+                    "data": {
+                        "video_id": summary.video_id,
+                        "title": summary.title,
+                        "channel_name": summary.channel_name,
+                        "view_count": summary.view_count,
+                        "video_url": summary.video_url,
+                        "key_points": summary.key_points,
+                        "key_points_timed": [{"text": kp.text, "timestamp": kp.timestamp} for kp in summary.key_points_timed],
+                        "raw_summary": summary.raw_summary,
+                        "categories": [{"category": c.category, "percentage": c.percentage} for c in summary.categories],
+                    }
+                })
+            except Exception as e:
+                skipped += 1
+                logger.error(f"Summarization failed: {e}")
+
+        if not video_summaries:
+            yield emit({"type": "error", "message": "Could not summarize any of the provided videos"})
+            return
+
+        yield emit({"type": "status", "message": "Generating final summary..."})
+        result = self._summarizer.aggregate_summaries("Provided videos", video_summaries)
+        yield emit({
+            "type": "final",
+            "data": {
+                "key_takeaways": result.key_takeaways,
+                "final_summary": result.final_summary,
+            }
+        })
+
+
+def _extract_video_id(url: str) -> Optional[str]:
+    """Extract YouTube video ID from various URL formats."""
+    patterns = [
+        r"(?:v=|youtu\.be/|embed/|shorts/)([a-zA-Z0-9_-]{11})",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return None

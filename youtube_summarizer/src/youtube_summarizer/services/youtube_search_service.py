@@ -31,6 +31,11 @@ class YouTubeSearchService(BaseVideoSearchService):
         )
         logger.debug("YouTubeSearchService initialised")
 
+    def fetch_by_ids(self, video_ids: List[str]) -> List[Video]:
+        """Fetch video metadata for a list of known video IDs (skips search step)."""
+        logger.info(f"Fetching metadata for {len(video_ids)} video IDs")
+        return self._fetch_video_details(video_ids)
+
     def search(
         self,
         query: str,

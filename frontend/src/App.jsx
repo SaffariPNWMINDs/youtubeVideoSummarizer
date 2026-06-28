@@ -34,6 +34,9 @@ function App() {
   const [answers, setAnswers] = useState({})
   const [askingVideoId, setAskingVideoId] = useState(null)
 
+  const [mode, setMode] = useState("search")
+  const [urlInput, setUrlInput] = useState("")
+
   const [showFilters, setShowFilters] = useState(false)
   const [publishedAfterYear, setPublishedAfterYear] = useState(2010)
   const [duration, setDuration] = useState("")
@@ -50,16 +53,20 @@ function App() {
     setAnswers({})
 
     try {
-      const body = {
-        query,
-        provider,
-        max_videos: maxVideos,
-        published_after_year: publishedAfterYear > 2010 ? publishedAfterYear : null,
-        duration: duration || null,
-        min_views: minViews ? parseInt(minViews) : null,
-      }
+      const isUrlMode = mode === "urls"
+      const endpoint = isUrlMode ? "http://localhost:8000/summarize-urls/stream" : "http://localhost:8000/summarize/stream"
+      const body = isUrlMode
+        ? { urls: urlInput.split("\n").map(u => u.trim()).filter(Boolean), provider }
+        : {
+            query,
+            provider,
+            max_videos: maxVideos,
+            published_after_year: publishedAfterYear > 2010 ? publishedAfterYear : null,
+            duration: duration || null,
+            min_views: minViews ? parseInt(minViews) : null,
+          }
 
-      const response = await fetch("http://localhost:8000/summarize/stream", {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -149,32 +156,61 @@ function App() {
         <p>Search any topic — get AI summaries, insights, and Q&A from the top videos</p>
       </div>
 
-      {/* Search */}
+      {/* Tabs + Search */}
       <div className="search-container">
-        <div className="search-bar">
-          <input
-            type="text"
-            placeholder="e.g. machine learning, climate change, Chicago..."
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSummarize()}
-          />
-          <select value={provider} onChange={(e) => setProvider(e.target.value)}>
-            <option value="openai">OpenAI</option>
-            <option value="claude">Claude</option>
-          </select>
-          <button onClick={handleSummarize} disabled={loading || !query.trim()}>
-            {loading ? "Analyzing..." : "Summarize →"}
+        <div className="mode-tabs">
+          <button className={`mode-tab ${mode === "search" ? "active" : ""}`} onClick={() => setMode("search")}>
+            🔍 Search by topic
+          </button>
+          <button className={`mode-tab ${mode === "urls" ? "active" : ""}`} onClick={() => setMode("urls")}>
+            🔗 Analyze URLs
           </button>
         </div>
+
+        {mode === "search" ? (
+          <div className="search-bar">
+            <input
+              type="text"
+              placeholder="e.g. machine learning, climate change, Chicago..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSummarize()}
+            />
+            <select value={provider} onChange={(e) => setProvider(e.target.value)}>
+              <option value="openai">OpenAI</option>
+              <option value="claude">Claude</option>
+            </select>
+            <button onClick={handleSummarize} disabled={loading || !query.trim()}>
+              {loading ? "Analyzing..." : "Summarize →"}
+            </button>
+          </div>
+        ) : (
+          <div className="url-input-container">
+            <textarea
+              placeholder={"Paste YouTube URLs, one per line:\nhttps://www.youtube.com/watch?v=...\nhttps://youtu.be/..."}
+              value={urlInput}
+              onChange={(e) => setUrlInput(e.target.value)}
+              rows={4}
+            />
+            <div className="url-input-footer">
+              <select value={provider} onChange={(e) => setProvider(e.target.value)}>
+                <option value="openai">OpenAI</option>
+                <option value="claude">Claude</option>
+              </select>
+              <button onClick={handleSummarize} disabled={loading || !urlInput.trim()}>
+                {loading ? "Analyzing..." : "Analyze Videos →"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Filters */}
-      <div className="filters-toggle" onClick={() => setShowFilters(!showFilters)}>
+      {/* Filters — only in search mode */}
+      {mode === "search" && <div className="filters-toggle" onClick={() => setShowFilters(!showFilters)}>
         {showFilters ? "▲" : "▼"} Advanced filters
-      </div>
+      </div>}
 
-      {showFilters && (
+      {showFilters && mode === "search" && (
         <div className="filters-panel">
           <div className="filter-group">
             <label>Published after: {publishedAfterYear === 2010 ? "Any" : publishedAfterYear}</label>

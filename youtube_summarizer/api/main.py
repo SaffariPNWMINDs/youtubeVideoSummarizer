@@ -58,6 +58,19 @@ class SummarizeResponse(BaseModel):
     final_summary: str              # cross-video synthesis
     
 
+class SummarizeUrlsRequest(BaseModel):
+    urls: List[str]
+    provider: Optional[LLMProvider] = LLMProvider.openai
+
+@app.post("/summarize-urls/stream")
+def summarize_urls_stream(request: SummarizeUrlsRequest):
+    pipeline = factory.build_pipeline(len(request.urls), request.provider)
+    return StreamingResponse(
+        pipeline.stream_from_urls(request.urls),
+        media_type="application/x-ndjson"
+    )
+
+
 class AskRequest(BaseModel):
     video_id: str
     transcript: str

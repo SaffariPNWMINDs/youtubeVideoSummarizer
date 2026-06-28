@@ -88,6 +88,112 @@ body {
   margin: 0 auto 12px;
 }
 
+.mode-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.mode-tab {
+  padding: 8px 18px;
+  border-radius: 10px;
+  border: 1px solid #2a2a2a;
+  background: transparent;
+  color: #555;
+  font-size: 0.85rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.mode-tab:hover {
+  color: #aaa;
+  border-color: #444;
+}
+
+.mode-tab.active {
+  background: #ff444415;
+  border-color: #ff4444;
+  color: #ff4444;
+  font-weight: 600;
+}
+
+.url-input-container {
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  border-radius: 16px;
+  padding: 16px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.url-input-container:focus-within {
+  border-color: #ff4444;
+  box-shadow: 0 0 0 3px rgba(255,68,68,0.1);
+}
+
+.url-input-container textarea {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: #e8e8e8;
+  font-size: 0.9rem;
+  font-family: inherit;
+  resize: none;
+  outline: none;
+  line-height: 1.6;
+}
+
+.url-input-container textarea::placeholder {
+  color: #333;
+}
+
+.url-input-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #1f1f1f;
+}
+
+.url-input-footer select {
+  background: #1f1f1f;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  color: #aaa;
+  font-size: 0.85rem;
+  font-family: inherit;
+  padding: 8px 12px;
+  cursor: pointer;
+  outline: none;
+}
+
+.url-input-footer button {
+  padding: 10px 24px;
+  border-radius: 10px;
+  border: none;
+  background: linear-gradient(135deg, #ff4444, #ff6644);
+  color: white;
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+  box-shadow: 0 4px 16px rgba(255,68,68,0.3);
+}
+
+.url-input-footer button:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.url-input-footer button:disabled {
+  background: #2a2a2a;
+  box-shadow: none;
+  cursor: not-allowed;
+  color: #555;
+}
+
 .search-bar {
   display: flex;
   gap: 10px;
