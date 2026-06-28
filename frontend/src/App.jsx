@@ -3,17 +3,23 @@ import "./App.css"
 
 const DURATION_OPTIONS = [
   { value: "short", label: "Short", tooltip: "Under 4 minutes" },
-  { value: "medium", label: "Medium", tooltip: "Between 4 and 20 minutes" },
+  { value: "medium", label: "Medium", tooltip: "4–20 minutes" },
   { value: "long", label: "Long", tooltip: "Over 20 minutes" },
 ]
 
 const MIN_VIEWS_OPTIONS = [
-  { value: "", label: "Any" },
+  { value: "", label: "Any views" },
   { value: "1000", label: "1K+" },
   { value: "10000", label: "10K+" },
   { value: "100000", label: "100K+" },
   { value: "1000000", label: "1M+" },
 ]
+
+function formatViews(n) {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M"
+  if (n >= 1_000) return (n / 1_000).toFixed(0) + "K"
+  return n.toString()
+}
 
 function App() {
   const [query, setQuery] = useState("")
@@ -28,13 +34,67 @@ function App() {
   const [answers, setAnswers] = useState({})
   const [askingVideoId, setAskingVideoId] = useState(null)
 
+  const [showFilters, setShowFilters] = useState(false)
+  const [publishedAfterYear, setPublishedAfterYear] = useState(2010)
+  const [duration, setDuration] = useState("")
+  const [minViews, setMinViews] = useState("")
+  const [maxVideos, setMaxVideos] = useState(5)
+
+  async function handleSummarize() {
+    setLoading(true)
+    setError("")
+    setVideos([])
+    setFinal(null)
+    setStatus("Starting...")
+    setActiveVideoId(null)
+    setAnswers({})
+
+    try {
+      const body = {
+        query,
+        provider,
+        max_videos: maxVideos,
+        published_after_year: publishedAfterYear > 2010 ? publishedAfterYear : null,
+        duration: duration || null,
+        min_views: minViews ? parseInt(minViews) : null,
+      }
+
+      const response = await fetch("http://localhost:8000/summarize/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        const lines = decoder.decode(value).split("\n").filter(Boolean)
+        for (const line of lines) {
+          const chunk = JSON.parse(line)
+          if (chunk.type === "status") setStatus(chunk.message)
+          else if (chunk.type === "video") setVideos((prev) => [...prev, chunk.data])
+          else if (chunk.type === "final") { setFinal(chunk.data); setStatus("") }
+          else if (chunk.type === "error") { setError(chunk.message); setStatus("") }
+        }
+      }
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+      setStatus("")
+    }
+  }
+
   async function handleAsk(video) {
     const question = questions[video.video_id]
     if (!question?.trim()) return
     setAskingVideoId(video.video_id)
     setQuestions((prev) => ({ ...prev, [video.video_id]: "" }))
 
-    // Add entry with empty answer first, then stream into it
     setAnswers((prev) => ({
       ...prev,
       [video.video_id]: [...(prev[video.video_id] || []), { question, answer: "" }],
@@ -76,112 +136,50 @@ function App() {
     }
   }
 
-  // Advanced filters
-  const [showFilters, setShowFilters] = useState(false)
-  const [publishedAfterYear, setPublishedAfterYear] = useState(2010)
-  const [duration, setDuration] = useState("")
-  const [minViews, setMinViews] = useState("")
-  const [maxVideos, setMaxVideos] = useState(5)
-
-  async function handleSummarize() {
-    setLoading(true)
-    setError("")
-    setVideos([])
-    setFinal(null)
-    setStatus("Starting...")
-    setActiveVideoId(null)
-
-    try {
-      const body = {
-        query,
-        provider,
-        max_videos: maxVideos,
-        published_after_year: publishedAfterYear > 2010 ? publishedAfterYear : null,
-        duration: duration || null,
-        min_views: minViews ? parseInt(minViews) : null,
-      }
-
-      const response = await fetch("http://localhost:8000/summarize/stream", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      })
-
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        const lines = decoder.decode(value).split("\n").filter(Boolean)
-        for (const line of lines) {
-          const chunk = JSON.parse(line)
-
-          if (chunk.type === "status") {
-            setStatus(chunk.message)
-          } else if (chunk.type === "video") {
-            setVideos((prev) => [...prev, chunk.data])
-          } else if (chunk.type === "final") {
-            setFinal(chunk.data)
-            setStatus("")
-          } else if (chunk.type === "error") {
-            setError(chunk.message)
-            setStatus("")
-          }
-        }
-      }
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
-      setStatus("")
-    }
-  }
-
   const hasResults = videos.length > 0 || final
 
   return (
     <div className="app">
-      <header className="header">
-        <h1>YouTube Summarizer</h1>
-        <p>Search any topic and get an AI-generated summary from the top YouTube videos</p>
-      </header>
-
-      <div className="search-bar">
-        <input
-          type="text"
-          placeholder="e.g. machine learning, react hooks, climate change..."
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSummarize()}
-        />
-        <select value={provider} onChange={(e) => setProvider(e.target.value)}>
-          <option value="openai">OpenAI</option>
-          <option value="claude">Claude</option>
-        </select>
-        <button onClick={handleSummarize} disabled={loading || !query.trim()}>
-          {loading ? "Summarizing..." : "Summarize"}
-        </button>
+      {/* Hero */}
+      <div className="hero">
+        <div className="hero-logo">
+          <div className="hero-logo-icon">▶</div>
+        </div>
+        <h1>YouTube <span>Summarizer</span></h1>
+        <p>Search any topic — get AI summaries, insights, and Q&A from the top videos</p>
       </div>
 
-      {/* Advanced Filters */}
+      {/* Search */}
+      <div className="search-container">
+        <div className="search-bar">
+          <input
+            type="text"
+            placeholder="e.g. machine learning, climate change, Chicago..."
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSummarize()}
+          />
+          <select value={provider} onChange={(e) => setProvider(e.target.value)}>
+            <option value="openai">OpenAI</option>
+            <option value="claude">Claude</option>
+          </select>
+          <button onClick={handleSummarize} disabled={loading || !query.trim()}>
+            {loading ? "Analyzing..." : "Summarize →"}
+          </button>
+        </div>
+      </div>
+
+      {/* Filters */}
       <div className="filters-toggle" onClick={() => setShowFilters(!showFilters)}>
         {showFilters ? "▲" : "▼"} Advanced filters
       </div>
 
       {showFilters && (
         <div className="filters-panel">
-
           <div className="filter-group">
-            <label>Published after: <strong>{publishedAfterYear === 2010 ? "Any year" : publishedAfterYear}</strong></label>
-            <input
-              type="range"
-              min="2010"
-              max="2026"
-              value={publishedAfterYear}
-              onChange={(e) => setPublishedAfterYear(parseInt(e.target.value))}
-            />
+            <label>Published after: {publishedAfterYear === 2010 ? "Any" : publishedAfterYear}</label>
+            <input type="range" min="2010" max="2026" value={publishedAfterYear}
+              onChange={(e) => setPublishedAfterYear(parseInt(e.target.value))} />
             <div className="range-labels"><span>2010</span><span>2026</span></div>
           </div>
 
@@ -194,13 +192,8 @@ function App() {
               </label>
               {DURATION_OPTIONS.map((opt) => (
                 <label key={opt.value} className="radio-option" title={opt.tooltip}>
-                  <input
-                    type="radio"
-                    name="duration"
-                    value={opt.value}
-                    checked={duration === opt.value}
-                    onChange={() => setDuration(opt.value)}
-                  />
+                  <input type="radio" name="duration" value={opt.value}
+                    checked={duration === opt.value} onChange={() => setDuration(opt.value)} />
                   {opt.label}
                   <span className="tooltip">{opt.tooltip}</span>
                 </label>
@@ -218,17 +211,11 @@ function App() {
           </div>
 
           <div className="filter-group">
-            <label>Number of videos: <strong>{maxVideos}</strong></label>
-            <input
-              type="range"
-              min="3"
-              max="20"
-              value={maxVideos}
-              onChange={(e) => setMaxVideos(parseInt(e.target.value))}
-            />
+            <label>Videos to analyze: {maxVideos}</label>
+            <input type="range" min="3" max="20" value={maxVideos}
+              onChange={(e) => setMaxVideos(parseInt(e.target.value))} />
             <div className="range-labels"><span>3</span><span>20</span></div>
           </div>
-
         </div>
       )}
 
@@ -244,51 +231,77 @@ function App() {
       {hasResults && (
         <div className="results-layout">
           <div className="results-left">
+
             {videos.length > 0 && (
               <section className="videos-section">
-                <h2>Videos Analyzed</h2>
-                {videos.map((v) => (
-                  <div key={v.video_id} className={`video-card ${activeVideoId === v.video_id ? "active" : ""}`}>
-                    <h3>{v.title}</h3>
-                    <p className="meta">{v.channel_name} · {v.view_count.toLocaleString()} views</p>
+                <div className="section-title">Videos Analyzed</div>
+                {videos.map((v, idx) => (
+                  <div key={v.video_id} className={`video-card ${activeVideoId === v.video_id ? "is-active" : ""}`}>
+                    <div className="video-card-header">
+                      <div className="video-number">{idx + 1}</div>
+                      <div className="video-card-header-text">
+                        <h3>{v.title}</h3>
+                        <div className="meta">
+                          <span>{v.channel_name}</span>
+                          <span className="meta-dot" />
+                          <span>{formatViews(v.view_count)} views</span>
+                        </div>
+                      </div>
+                    </div>
+
                     <p>{v.raw_summary}</p>
+
                     <ul>
                       {(v.key_points_timed?.length ? v.key_points_timed : v.key_points.map(text => ({ text, timestamp: null }))).map((kp, i) => (
                         <li key={i}>
-                          {kp.text}
+                          <span>{kp.text}</span>
                           {kp.timestamp != null && (
-                            <button
-                              className="timestamp-btn"
-                              onClick={() => {
-                                setActiveVideoId(v.video_id)
-                                // YouTube embed accepts start= param to seek
-                                document.querySelector(".player-panel iframe")?.setAttribute(
-                                  "src",
-                                  `https://www.youtube.com/embed/${v.video_id}?start=${kp.timestamp}&autoplay=1`
-                                )
-                              }}
-                            >
+                            <button className="timestamp-btn" onClick={() => {
+                              setActiveVideoId(v.video_id)
+                              document.querySelector(".player-panel iframe")?.setAttribute(
+                                "src",
+                                `https://www.youtube.com/embed/${v.video_id}?start=${kp.timestamp}`
+                              )
+                            }}>
                               {Math.floor(kp.timestamp / 60)}:{String(kp.timestamp % 60).padStart(2, "0")}
                             </button>
                           )}
                         </li>
                       ))}
                     </ul>
-                    <button
-                      className="watch-btn"
-                      onClick={() => setActiveVideoId(v.video_id === activeVideoId ? null : v.video_id)}
-                    >
-                      {activeVideoId === v.video_id ? "▼ Close" : "▶ Watch Video"}
-                    </button>
+
+                    {v.categories?.length > 0 && (
+                      <div className="category-chart">
+                        <h4>Content Breakdown</h4>
+                        {v.categories.map((c, i) => (
+                          <div key={i} className="category-row">
+                            <span className="category-label">{c.category}</span>
+                            <div className="category-bar-bg">
+                              <div className="category-bar-fill" style={{ width: `${c.percentage}%`, "--idx": i }} />
+                            </div>
+                            <span className="category-pct">{c.percentage}%</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="video-card-actions">
+                      <button
+                        className={`watch-btn ${activeVideoId === v.video_id ? "active" : ""}`}
+                        onClick={() => setActiveVideoId(v.video_id === activeVideoId ? null : v.video_id)}
+                      >
+                        {activeVideoId === v.video_id ? "▼ Close Player" : "▶ Watch Video"}
+                      </button>
+                    </div>
 
                     <div className="qa-section">
-                      <h4>Ask a question about this video</h4>
+                      <h4>Ask about this video</h4>
                       {answers[v.video_id]?.length > 0 && (
                         <div className="qa-history">
                           {answers[v.video_id].map((entry, i) => (
                             <div key={i} className="qa-entry">
-                              <div className="qa-question"><strong>Q:</strong> {entry.question}</div>
-                              <div className="qa-answer"><strong>A:</strong> {entry.answer}</div>
+                              <div className="qa-question">{entry.question}</div>
+                              <div className="qa-answer">{entry.answer}</div>
                             </div>
                           ))}
                         </div>
@@ -296,16 +309,13 @@ function App() {
                       <div className="qa-input-row">
                         <input
                           type="text"
-                          placeholder="e.g. What is the main argument?"
+                          placeholder="Ask anything about this video..."
                           value={questions[v.video_id] || ""}
                           onChange={(e) => setQuestions((prev) => ({ ...prev, [v.video_id]: e.target.value }))}
                           onKeyDown={(e) => e.key === "Enter" && handleAsk(v)}
                         />
-                        <button
-                          onClick={() => handleAsk(v)}
-                          disabled={askingVideoId === v.video_id}
-                        >
-                          {askingVideoId === v.video_id ? "Asking..." : "Ask"}
+                        <button onClick={() => handleAsk(v)} disabled={askingVideoId === v.video_id}>
+                          {askingVideoId === v.video_id ? "..." : "Ask"}
                         </button>
                       </div>
                     </div>
@@ -317,15 +327,13 @@ function App() {
             {final && (
               <>
                 <section className="summary-section">
-                  <h2>Overview</h2>
+                  <div className="section-title">Overview</div>
                   <p>{final.final_summary}</p>
                 </section>
                 <section className="takeaways-section">
-                  <h2>Key Takeaways</h2>
+                  <div className="section-title">Key Takeaways</div>
                   <ol>
-                    {final.key_takeaways.map((t, i) => (
-                      <li key={i}>{t}</li>
-                    ))}
+                    {final.key_takeaways.map((t, i) => <li key={i}>{t}</li>)}
                   </ol>
                 </section>
               </>
@@ -340,7 +348,7 @@ function App() {
                 allowFullScreen
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
               />
-              <button className="close-btn" onClick={() => setActiveVideoId(null)}>✕ Close</button>
+              <button className="close-btn" onClick={() => setActiveVideoId(null)}>✕ Close Player</button>
             </div>
           )}
         </div>
