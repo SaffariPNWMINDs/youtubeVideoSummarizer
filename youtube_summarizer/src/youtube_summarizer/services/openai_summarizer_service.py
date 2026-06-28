@@ -5,7 +5,7 @@ from typing import List
 from openai import OpenAI
 
 from youtube_summarizer.config import settings
-from youtube_summarizer.models.summary import AggregatedSummary, KeyPoint, VideoSummary
+from youtube_summarizer.models.summary import AggregatedSummary, CategoryBreakdown, KeyPoint, VideoSummary
 from youtube_summarizer.models.transcript import Transcript
 from youtube_summarizer.models.video import Video
 from youtube_summarizer.services.base import BaseSummarizerService
@@ -53,6 +53,11 @@ class OpenAISummarizerService(BaseSummarizerService):
             for kp in parsed.get("key_points", [])
         ]
 
+        categories = [
+            CategoryBreakdown(category=c["category"], percentage=c["percentage"])
+            for c in parsed.get("categories", [])
+        ]
+
         return VideoSummary(
             video_id=video.video_id,
             title=video.title,
@@ -62,6 +67,7 @@ class OpenAISummarizerService(BaseSummarizerService):
             key_points=[kp.text for kp in timed],
             key_points_timed=timed,
             raw_summary=parsed["raw_summary"],
+            categories=categories,
         )
 
     def aggregate_summaries(
@@ -130,13 +136,19 @@ Return ONLY a JSON object (no markdown, no explanation) with these exact keys:
     {{"text": "point 1", "timestamp": 45}},
     {{"text": "point 2", "timestamp": 134}}
   ],
-  "raw_summary": "2-3 sentence prose summary of the main content."
+  "raw_summary": "2-3 sentence prose summary of the main content.",
+  "categories": [
+    {{"category": "Topic A", "percentage": 50}},
+    {{"category": "Topic B", "percentage": 30}},
+    {{"category": "Topic C", "percentage": 20}}
+  ]
 }}
 
 Rules:
 - key_points: 3 to 5 items, each under 20 words, written as statements not questions
 - timestamp: seconds from video start where this topic is discussed (integer). Use the [MM:SS] markers in the transcript to estimate. If unsure, omit (null).
 - raw_summary: plain prose, under 100 words
+- categories: 3 to 6 topics freely identified from the content, percentages must sum to 100
 - JSON only — no markdown fences, no extra text"""
 
     @staticmethod

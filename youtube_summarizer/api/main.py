@@ -36,6 +36,10 @@ class KeyPointResponse(BaseModel):
     text: str
     timestamp: Optional[int] = None
 
+class CategoryResponse(BaseModel):
+    category: str
+    percentage: int
+
 class VideoResponse(BaseModel):
     video_id: str
     title: str
@@ -45,6 +49,7 @@ class VideoResponse(BaseModel):
     key_points: List[str]
     key_points_timed: List[KeyPointResponse] = []
     raw_summary: str
+    categories: List[CategoryResponse] = []
 
 class SummarizeResponse(BaseModel):
     query: str
@@ -127,7 +132,8 @@ def summarize(request: SummarizeRequest):
                 video_url=vs.video_url,
                 key_points=vs.key_points,
                 key_points_timed=[KeyPointResponse(text=kp.text, timestamp=kp.timestamp) for kp in vs.key_points_timed],
-                raw_summary=vs.raw_summary
+                raw_summary=vs.raw_summary,
+                categories=[CategoryResponse(category=c.category, percentage=c.percentage) for c in vs.categories]
             ) for vs in result.video_summaries
         ]
     )

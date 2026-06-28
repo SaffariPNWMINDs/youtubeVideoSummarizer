@@ -9,6 +9,11 @@ class KeyPoint(BaseModel):
     timestamp: Optional[int] = None  # seconds, e.g. 154 → 2:34
 
 
+class CategoryBreakdown(BaseModel):
+    category: str
+    percentage: int
+
+
 class VideoSummary(BaseModel):
     """Summary produced for a single video."""
 
@@ -20,6 +25,7 @@ class VideoSummary(BaseModel):
     key_points: List[str]                        # plain text fallback
     key_points_timed: List[KeyPoint] = []        # key points with timestamps
     raw_summary: str
+    categories: List[CategoryBreakdown] = []
 
 
 class AggregatedSummary(BaseModel):
