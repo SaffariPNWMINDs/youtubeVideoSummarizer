@@ -113,7 +113,6 @@ function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           video_id: video.video_id,
-          transcript: video.raw_summary,
           question,
         }),
       })

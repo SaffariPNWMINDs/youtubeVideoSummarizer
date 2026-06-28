@@ -13,6 +13,9 @@ from youtube_summarizer.pipeline.rag_pipeline import retrieve_relevant_chunks, c
 
 app = FastAPI()
 
+# In-memory store: video_id → full transcript text
+transcript_store: dict[str, str] = {}
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:5174"],
@@ -65,15 +68,48 @@ class SummarizeUrlsRequest(BaseModel):
 @app.post("/summarize-urls/stream")
 def summarize_urls_stream(request: SummarizeUrlsRequest):
     pipeline = factory.build_pipeline(len(request.urls), request.provider)
-    return StreamingResponse(
-        pipeline.stream_from_urls(request.urls),
-        media_type="application/x-ndjson"
-    )
+
+    def stream_and_store():
+        for chunk in pipeline.stream_from_urls(request.urls):
+            import json as _json
+            try:
+                parsed = _json.loads(chunk.strip())
+                if parsed.get("type") == "video":
+                    vid = parsed["data"]
+                    transcript_store[vid["video_id"]] = vid.pop("transcript_text", "")
+            except Exception:
+                pass
+            yield chunk
+
+    return StreamingResponse(stream_and_store(), media_type="application/x-ndjson")
+
+
+@app.post("/summarize/stream")
+def summarize_stream_endpoint(request: SummarizeRequest):
+    pipeline = factory.build_pipeline(request.max_videos, request.provider)
+
+    def stream_and_store():
+        for chunk in pipeline.stream(
+            request.query,
+            published_after_year=request.published_after_year,
+            duration=request.duration,
+            min_views=request.min_views,
+        ):
+            import json as _json
+            try:
+                parsed = _json.loads(chunk.strip())
+                if parsed.get("type") == "video":
+                    vid = parsed["data"]
+                    transcript_store[vid["video_id"]] = vid.pop("transcript_text", "")
+            except Exception:
+                pass
+            yield chunk
+
+    return StreamingResponse(stream_and_store(), media_type="application/x-ndjson")
 
 
 class AskRequest(BaseModel):
     video_id: str
-    transcript: str
     question: str
 
 class AskResponse(BaseModel):
@@ -83,7 +119,10 @@ class AskResponse(BaseModel):
 @app.post("/ask")
 def ask(request: AskRequest):
     if not is_video_indexed(request.video_id):
-        chunks = chunk_transcript(request.transcript)
+        transcript = transcript_store.get(request.video_id, "")
+        if not transcript:
+            raise HTTPException(status_code=404, detail="Transcript not found. Please search first.")
+        chunks = chunk_transcript(transcript)
         embeddings = embed_texts(chunks)
         store_embeddings(request.video_id, chunks, embeddings)
     relevant_chunks = retrieve_relevant_chunks(request.video_id, request.question)
@@ -107,19 +146,6 @@ def ask(request: AskRequest):
 
     return StreamingResponse(stream_answer(), media_type="text/plain")
 
-
-@app.post("/summarize/stream")
-def summarize_stream(request: SummarizeRequest):
-    pipeline = factory.build_pipeline(request.max_videos, request.provider)
-    return StreamingResponse(
-        pipeline.stream(
-            request.query,
-            published_after_year=request.published_after_year,
-            duration=request.duration,
-            min_views=request.min_views,
-        ),
-        media_type="application/x-ndjson"
-    )
 
 
 @app.post("/summarize")

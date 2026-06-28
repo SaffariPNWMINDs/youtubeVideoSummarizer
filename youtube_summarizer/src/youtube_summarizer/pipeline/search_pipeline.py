@@ -161,6 +161,7 @@ class SearchPipeline:
                         "key_points_timed": [{"text": kp.text, "timestamp": kp.timestamp} for kp in summary.key_points_timed],
                         "raw_summary": summary.raw_summary,
                         "categories": [{"category": c.category, "percentage": c.percentage} for c in summary.categories],
+                        "transcript_text": transcript.full_text,
                     }
                 })
             except Exception as e:
@@ -228,6 +229,7 @@ class SearchPipeline:
                         "key_points_timed": [{"text": kp.text, "timestamp": kp.timestamp} for kp in summary.key_points_timed],
                         "raw_summary": summary.raw_summary,
                         "categories": [{"category": c.category, "percentage": c.percentage} for c in summary.categories],
+                        "transcript_text": transcript.full_text,
                     }
                 })
             except Exception as e:
