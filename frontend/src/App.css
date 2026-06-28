@@ -368,3 +368,98 @@ h2 {
   font-size: 0.9rem;
   line-height: 1.5;
 }
+
+.qa-section {
+  margin-top: 16px;
+  border-top: 1px solid #2a2a2a;
+  padding-top: 16px;
+}
+
+.qa-section h4 {
+  font-size: 0.85rem;
+  color: #888;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.qa-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.qa-input-row input {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid #333;
+  background: #111;
+  color: #e8e8e8;
+  font-size: 0.9rem;
+}
+
+.qa-input-row input:focus {
+  outline: none;
+  border-color: #ff4444;
+}
+
+.qa-input-row button {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: none;
+  background: #ff4444;
+  color: white;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.qa-input-row button:hover:not(:disabled) {
+  background: #cc0000;
+}
+
+.qa-input-row button:disabled {
+  background: #444;
+  cursor: not-allowed;
+}
+
+.qa-history {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.qa-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qa-question {
+  align-self: flex-end;
+  background: #2a1a1a;
+  border: 1px solid #ff444433;
+  color: #e8e8e8;
+  padding: 8px 12px;
+  border-radius: 12px 12px 2px 12px;
+  font-size: 0.88rem;
+  max-width: 85%;
+}
+
+.qa-answer {
+  align-self: flex-start;
+  background: #1a1a2a;
+  border: 1px solid #3344ff33;
+  color: #ccc;
+  padding: 8px 12px;
+  border-radius: 12px 12px 12px 2px;
+  font-size: 0.88rem;
+  max-width: 85%;
+  line-height: 1.5;
+}

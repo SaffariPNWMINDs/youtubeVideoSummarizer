@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from youtube_summarizer import factory
+from youtube_summarizer.pipeline.rag_pipeline import retrieve_relevant_chunks, chunk_transcript, embed_texts, store_embeddings, is_video_indexed
 
 
 app = FastAPI()
@@ -51,6 +52,43 @@ class SummarizeResponse(BaseModel):
     key_takeaways: List[str]        # 5-7 top insights across all videos
     final_summary: str              # cross-video synthesis
     
+
+class AskRequest(BaseModel):
+    video_id: str
+    transcript: str
+    question: str
+
+class AskResponse(BaseModel):
+    answer: str
+    relevant_chunks: List[str]
+
+@app.post("/ask")
+def ask(request: AskRequest):
+    if not is_video_indexed(request.video_id):
+        chunks = chunk_transcript(request.transcript)
+        embeddings = embed_texts(chunks)
+        store_embeddings(request.video_id, chunks, embeddings)
+    relevant_chunks = retrieve_relevant_chunks(request.video_id, request.question)
+
+    context = "\n\n".join(relevant_chunks)
+    from openai import OpenAI
+    llm = OpenAI()
+
+    def stream_answer():
+        for chunk in llm.chat.completions.create(
+            model="gpt-4o-mini",
+            stream=True,
+            messages=[
+                {"role": "system", "content": "Answer the question using only the provided transcript context."},
+                {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {request.question}"},
+            ],
+        ):
+            token = chunk.choices[0].delta.content
+            if token:
+                yield token
+
+    return StreamingResponse(stream_answer(), media_type="text/plain")
+
 
 @app.post("/summarize/stream")
 def summarize_stream(request: SummarizeRequest):

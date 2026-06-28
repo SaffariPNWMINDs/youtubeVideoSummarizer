@@ -24,6 +24,57 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [activeVideoId, setActiveVideoId] = useState(null)
+  const [questions, setQuestions] = useState({})
+  const [answers, setAnswers] = useState({})
+  const [askingVideoId, setAskingVideoId] = useState(null)
+
+  async function handleAsk(video) {
+    const question = questions[video.video_id]
+    if (!question?.trim()) return
+    setAskingVideoId(video.video_id)
+    setQuestions((prev) => ({ ...prev, [video.video_id]: "" }))
+
+    // Add entry with empty answer first, then stream into it
+    setAnswers((prev) => ({
+      ...prev,
+      [video.video_id]: [...(prev[video.video_id] || []), { question, answer: "" }],
+    }))
+
+    try {
+      const response = await fetch("http://localhost:8000/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          video_id: video.video_id,
+          transcript: video.raw_summary,
+          question,
+        }),
+      })
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        const token = decoder.decode(value)
+        setAnswers((prev) => {
+          const history = [...(prev[video.video_id] || [])]
+          const last = history[history.length - 1]
+          history[history.length - 1] = { ...last, answer: last.answer + token }
+          return { ...prev, [video.video_id]: history }
+        })
+      }
+    } catch (err) {
+      setAnswers((prev) => {
+        const history = [...(prev[video.video_id] || [])]
+        history[history.length - 1] = { ...history[history.length - 1], answer: "Error: " + err.message }
+        return { ...prev, [video.video_id]: history }
+      })
+    } finally {
+      setAskingVideoId(null)
+    }
+  }
 
   // Advanced filters
   const [showFilters, setShowFilters] = useState(false)
@@ -229,6 +280,35 @@ function App() {
                     >
                       {activeVideoId === v.video_id ? "▼ Close" : "▶ Watch Video"}
                     </button>
+
+                    <div className="qa-section">
+                      <h4>Ask a question about this video</h4>
+                      {answers[v.video_id]?.length > 0 && (
+                        <div className="qa-history">
+                          {answers[v.video_id].map((entry, i) => (
+                            <div key={i} className="qa-entry">
+                              <div className="qa-question"><strong>Q:</strong> {entry.question}</div>
+                              <div className="qa-answer"><strong>A:</strong> {entry.answer}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="qa-input-row">
+                        <input
+                          type="text"
+                          placeholder="e.g. What is the main argument?"
+                          value={questions[v.video_id] || ""}
+                          onChange={(e) => setQuestions((prev) => ({ ...prev, [v.video_id]: e.target.value }))}
+                          onKeyDown={(e) => e.key === "Enter" && handleAsk(v)}
+                        />
+                        <button
+                          onClick={() => handleAsk(v)}
+                          disabled={askingVideoId === v.video_id}
+                        >
+                          {askingVideoId === v.video_id ? "Asking..." : "Ask"}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 ))}
               </section>
