@@ -31,7 +31,12 @@ class SummarizeRequest(BaseModel):
     query: str
     max_videos: Optional[int] = 5
     provider: Optional[LLMProvider] = LLMProvider.openai
-    published_after_year: Optional[int] = None   # e.g. 2020 → only videos from 2020+
+    published_after_year: Optional[int] = None
+    published_before_year: Optional[int] = None
+    sort_by: Optional[str] = "views"
+    language: Optional[str] = "en"
+    channel_filter: Optional[str] = None
+    exclude_keywords: Optional[str] = None
     duration: Optional[str] = None               # "short" | "medium" | "long"
     min_views: Optional[int] = None              # e.g. 10000
     
@@ -92,6 +97,11 @@ def summarize_stream_endpoint(request: SummarizeRequest):
         for chunk in pipeline.stream(
             request.query,
             published_after_year=request.published_after_year,
+            published_before_year=request.published_before_year,
+            sort_by=request.sort_by,
+            language=request.language,
+            channel_filter=request.channel_filter,
+            exclude_keywords=request.exclude_keywords,
             duration=request.duration,
             min_views=request.min_views,
         ):

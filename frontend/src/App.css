@@ -326,6 +326,10 @@ body {
   font-family: inherit;
 }
 
+.year-range-slider {
+  padding: 0 4px;
+}
+
 .range-labels {
   display: flex;
   justify-content: space-between;

@@ -1,5 +1,7 @@
 import { useState } from "react"
 import "./App.css"
+import Slider from "rc-slider"
+import "rc-slider/assets/index.css"
 
 const DURATION_OPTIONS = [
   { value: "short", label: "Short", tooltip: "Under 4 minutes" },
@@ -39,9 +41,14 @@ function App() {
 
   const [showFilters, setShowFilters] = useState(false)
   const [publishedAfterYear, setPublishedAfterYear] = useState(2010)
+  const [publishedBeforeYear, setPublishedBeforeYear] = useState(2026)
   const [duration, setDuration] = useState("")
   const [minViews, setMinViews] = useState("")
   const [maxVideos, setMaxVideos] = useState(5)
+  const [sortBy, setSortBy] = useState("views")
+  const [language, setLanguage] = useState("en")
+  const [channelFilter, setChannelFilter] = useState("")
+  const [excludeKeywords, setExcludeKeywords] = useState("")
 
   async function handleSummarize() {
     setLoading(true)
@@ -62,6 +69,11 @@ function App() {
             provider,
             max_videos: maxVideos,
             published_after_year: publishedAfterYear > 2010 ? publishedAfterYear : null,
+        published_before_year: publishedBeforeYear < 2026 ? publishedBeforeYear : null,
+        sort_by: sortBy,
+        language,
+        channel_filter: channelFilter || null,
+        exclude_keywords: excludeKeywords || null,
             duration: duration || null,
             min_views: minViews ? parseInt(minViews) : null,
           }
@@ -212,10 +224,35 @@ function App() {
       {showFilters && mode === "search" && (
         <div className="filters-panel">
           <div className="filter-group">
-            <label>Published after: {publishedAfterYear === 2010 ? "Any" : publishedAfterYear}</label>
-            <input type="range" min="2010" max="2026" value={publishedAfterYear}
-              onChange={(e) => setPublishedAfterYear(parseInt(e.target.value))} />
-            <div className="range-labels"><span>2010</span><span>2026</span></div>
+            <label>
+              Published between&nbsp;
+              <strong style={{color: "#e8e8e8"}}>
+                {publishedAfterYear === 2010 ? "any" : publishedAfterYear}
+                {" – "}
+                {publishedBeforeYear === 2026 ? "now" : publishedBeforeYear}
+              </strong>
+            </label>
+            <div className="year-range-slider">
+              <Slider
+                range
+                min={2010}
+                max={2026}
+                value={[publishedAfterYear, publishedBeforeYear]}
+                onChange={([after, before]) => {
+                  setPublishedAfterYear(after)
+                  setPublishedBeforeYear(before)
+                }}
+                styles={{
+                  track: { backgroundColor: "#ff4444" },
+                  handle: { borderColor: "#ff4444", backgroundColor: "#ff4444", opacity: 1 },
+                  rail: { backgroundColor: "#2a2a2a" },
+                }}
+              />
+              <div className="range-labels">
+                <span>2010</span>
+                <span>2026</span>
+              </div>
+            </div>
           </div>
 
           <div className="filter-group">
@@ -243,6 +280,54 @@ function App() {
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
+          </div>
+
+          <div className="filter-group">
+            <label>Sort by</label>
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+              <option value="views">Most viewed</option>
+              <option value="date">Most recent</option>
+              <option value="relevance">Most relevant</option>
+            </select>
+          </div>
+
+          <div className="filter-group">
+            <label>Language</label>
+            <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+              <option value="en">English</option>
+              <option value="es">Spanish</option>
+              <option value="fr">French</option>
+              <option value="de">German</option>
+              <option value="zh">Chinese</option>
+              <option value="ar">Arabic</option>
+              <option value="pt">Portuguese</option>
+              <option value="hi">Hindi</option>
+              <option value="ja">Japanese</option>
+              <option value="ko">Korean</option>
+            </select>
+          </div>
+
+          <div className="filter-group">
+            <label>Channel name contains</label>
+            <input
+              type="text"
+              placeholder="e.g. MIT, TED, BBC"
+              value={channelFilter}
+              onChange={(e) => setChannelFilter(e.target.value)}
+              style={{ padding: "8px 12px", borderRadius: "8px", border: "1px solid #2a2a2a", background: "#0f0f0f", color: "#e8e8e8", fontSize: "0.85rem", fontFamily: "inherit" }}
+            />
+          </div>
+
+          <div className="filter-group">
+            <label>Exclude keywords</label>
+            <input
+              type="text"
+              placeholder="e.g. tutorial, beginner"
+              value={excludeKeywords}
+              onChange={(e) => setExcludeKeywords(e.target.value)}
+              style={{ padding: "8px 12px", borderRadius: "8px", border: "1px solid #2a2a2a", background: "#0f0f0f", color: "#e8e8e8", fontSize: "0.85rem", fontFamily: "inherit" }}
+            />
+            <span style={{ fontSize: "0.72rem", color: "#444" }}>comma-separated</span>
           </div>
 
           <div className="filter-group">

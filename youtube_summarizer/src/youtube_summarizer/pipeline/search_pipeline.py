@@ -110,6 +110,11 @@ class SearchPipeline:
         self,
         query: str,
         published_after_year: Optional[int] = None,
+        published_before_year: Optional[int] = None,
+        sort_by: Optional[str] = "views",
+        language: Optional[str] = "en",
+        channel_filter: Optional[str] = None,
+        exclude_keywords: Optional[str] = None,
         duration: Optional[str] = None,
         min_views: Optional[int] = None,
     ) -> Generator[str, None, None]:
@@ -126,6 +131,11 @@ class SearchPipeline:
             query,
             max_results=self._max_videos,
             published_after_year=published_after_year,
+            published_before_year=published_before_year,
+            sort_by=sort_by,
+            language=language,
+            channel_filter=channel_filter,
+            exclude_keywords=exclude_keywords,
             duration=duration,
             min_views=min_views,
         )

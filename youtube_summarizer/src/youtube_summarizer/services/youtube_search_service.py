@@ -41,13 +41,18 @@ class YouTubeSearchService(BaseVideoSearchService):
         query: str,
         max_results: int = 10,
         published_after_year: Optional[int] = None,
+        published_before_year: Optional[int] = None,
+        sort_by: Optional[str] = "views",
+        language: Optional[str] = "en",
+        channel_filter: Optional[str] = None,
+        exclude_keywords: Optional[str] = None,
         duration: Optional[str] = None,
         min_views: Optional[int] = None,
     ) -> List[Video]:
         logger.info(f"Searching YouTube for: '{query}' (max {max_results})")
 
         try:
-            video_ids = self._search_video_ids(query, max_results, published_after_year, duration)
+            video_ids = self._search_video_ids(query, max_results, published_after_year, published_before_year, sort_by, language, duration)
             if not video_ids:
                 logger.warning("YouTube search returned no results")
                 return []
@@ -56,8 +61,16 @@ class YouTubeSearchService(BaseVideoSearchService):
 
             if min_views:
                 videos = [v for v in videos if v.view_count >= min_views]
+            if channel_filter:
+                videos = [v for v in videos if channel_filter.lower() in v.channel_name.lower()]
+            if exclude_keywords:
+                keywords = [k.strip().lower() for k in exclude_keywords.split(",") if k.strip()]
+                videos = [v for v in videos if not any(k in (v.title + " " + (v.description or "")).lower() for k in keywords)]
 
-            videos.sort(key=lambda v: v.view_count, reverse=True)
+            if sort_by == "views":
+                videos.sort(key=lambda v: v.view_count, reverse=True)
+            elif sort_by == "date":
+                videos.sort(key=lambda v: v.published_at, reverse=True)
             logger.info(f"Returning {len(videos)} videos for '{query}'")
             return videos
 
@@ -74,20 +87,27 @@ class YouTubeSearchService(BaseVideoSearchService):
         query: str,
         max_results: int,
         published_after_year: Optional[int] = None,
+        published_before_year: Optional[int] = None,
+        sort_by: Optional[str] = "views",
+        language: Optional[str] = "en",
         duration: Optional[str] = None,
     ) -> List[str]:
         """Step 1: get video IDs from search.list."""
+        api_order = "date" if sort_by == "date" else "relevance"
         params = dict(
             q=query,
             part="id",
             maxResults=max_results,
             type="video",
-            order="relevance",
-            relevanceLanguage="en",
+            order=api_order,
+            relevanceLanguage=language or "en",
             safeSearch="moderate",
+            videoCaption="closedCaption",
         )
         if published_after_year:
             params["publishedAfter"] = datetime(published_after_year, 1, 1, tzinfo=timezone.utc).isoformat()
+        if published_before_year:
+            params["publishedBefore"] = datetime(published_before_year, 12, 31, tzinfo=timezone.utc).isoformat()
         if duration in ("short", "medium", "long"):
             params["videoDuration"] = duration
 
