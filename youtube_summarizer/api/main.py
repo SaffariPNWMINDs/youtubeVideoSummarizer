@@ -7,7 +7,13 @@ from fastapi import HTTPException, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
+from google_auth_oauthlib.flow import Flow
+from googleapiclient.discovery import build as google_build
+from fastapi.responses import RedirectResponse
+import json as _json
+
 from youtube_summarizer import factory
+from youtube_summarizer.config import settings
 from youtube_summarizer.pipeline.rag_pipeline import retrieve_relevant_chunks, chunk_transcript, embed_texts, store_embeddings, is_video_indexed
 
 
@@ -15,6 +21,31 @@ app = FastAPI()
 
 # In-memory store: video_id → full transcript text
 transcript_store: dict[str, str] = {}
+
+# In-memory store: session_id → user profile (interests + name)
+user_sessions: dict[str, dict] = {}
+
+# In-memory store: state → (flow, code_verifier) for OAuth PKCE
+oauth_states: dict[str, dict] = {}
+
+SCOPES = [
+    "https://www.googleapis.com/auth/youtube.readonly",
+    "openid",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
+]
+
+def _build_flow() -> Flow:
+    client_config = {
+        "web": {
+            "client_id": settings.google_client_id,
+            "client_secret": settings.google_client_secret,
+            "redirect_uris": [settings.google_redirect_uri],
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+        }
+    }
+    return Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri=settings.google_redirect_uri)
 
 app.add_middleware(
     CORSMiddleware,
@@ -65,6 +96,105 @@ class SummarizeResponse(BaseModel):
     key_takeaways: List[str]        # 5-7 top insights across all videos
     final_summary: str              # cross-video synthesis
     
+
+@app.get("/auth/login")
+def auth_login():
+    import os
+    os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+    flow = _build_flow()
+    auth_url, state = flow.authorization_url(
+        prompt="consent",
+        access_type="offline",
+    )
+    oauth_states[state] = flow
+    return {"auth_url": auth_url}
+
+
+@app.get("/auth/callback")
+def auth_callback(code: str, state: str = None):
+    import os
+    os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+    os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
+    flow = oauth_states.pop(state, None) or _build_flow()
+    flow.fetch_token(code=code)
+    credentials = flow.credentials
+
+    # Fetch user profile
+    from googleapiclient.discovery import build as gbuild
+    people_service = gbuild("oauth2", "v2", credentials=credentials)
+    user_info = people_service.userinfo().get().execute()
+    name = user_info.get("given_name", "there")
+    email = user_info.get("email", "")
+
+    # Fetch YouTube subscriptions (top 10)
+    yt = gbuild("youtube", "v3", credentials=credentials)
+    subs_response = yt.subscriptions().list(
+        part="snippet", mine=True, maxResults=10
+    ).execute()
+    subscriptions = [
+        item["snippet"]["title"]
+        for item in subs_response.get("items", [])
+    ]
+
+    # Fetch liked videos (top 10)
+    liked_response = yt.videos().list(
+        part="snippet",
+        myRating="like",
+        maxResults=10,
+    ).execute()
+    liked_titles = [
+        item["snippet"]["title"]
+        for item in liked_response.get("items", [])
+    ]
+
+    # Generate personalized greeting via LLM
+    from openai import OpenAI
+    llm = OpenAI()
+    context = f"User's name: {name}\nSubscribed channels: {', '.join(subscriptions)}\nRecently liked videos: {', '.join(liked_titles)}"
+    response = llm.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are a witty assistant. Generate a short, funny, personalized greeting (1-2 sentences max) for a user based on their YouTube interests. Be creative and reference something specific from their interests. No emojis."},
+            {"role": "user", "content": context},
+        ],
+        max_tokens=100,
+    )
+    greeting = response.choices[0].message.content
+
+    # Store session
+    session_id = email
+    user_sessions[session_id] = {
+        "name": name,
+        "email": email,
+        "subscriptions": subscriptions,
+        "greeting": greeting,
+    }
+
+    # Redirect to frontend with session info
+    frontend_url = f"http://localhost:5173?session={session_id}&name={name}&greeting={greeting}"
+    return RedirectResponse(url=frontend_url)
+
+
+@app.get("/auth/greeting")
+def get_greeting(session: str):
+    user = user_sessions.get(session)
+    if not user:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Regenerate greeting each time for freshness
+    from openai import OpenAI
+    llm = OpenAI()
+    context = f"User's name: {user['name']}\nSubscribed channels: {', '.join(user['subscriptions'])}"
+    response = llm.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are a witty assistant. Generate a short, funny, personalized greeting (1-2 sentences max) for a user based on their YouTube interests. Be creative and reference something specific. No emojis."},
+            {"role": "user", "content": context},
+        ],
+        max_tokens=100,
+    )
+    return {"greeting": response.choices[0].message.content, "name": user["name"]}
+
 
 class SummarizeUrlsRequest(BaseModel):
     urls: List[str]

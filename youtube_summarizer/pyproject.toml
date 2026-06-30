@@ -18,6 +18,8 @@ openai = "^2.39.0"
 fastapi = {extras = ["standard"], version = "^0.136.3"}
 uvicorn = "^0.48.0"
 chromadb = "^1.5.9"
+google-auth = "^2.55.1"
+google-auth-oauthlib = "^1.4.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest        = "^7.4.0"

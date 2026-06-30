@@ -16,6 +16,15 @@ class Settings(BaseSettings):
     anthropic_api_key: Optional[str] = None
     openai_api_key: Optional[str] = None
 
+    # Google OAuth
+    google_client_id: Optional[str] = None
+    google_client_secret: Optional[str] = None
+    google_redirect_uri: Optional[str] = None
+    google_project_id: Optional[str] = None
+    google_auth_uri: Optional[str] = None
+    google_token_uri: Optional[str] = None
+    google_auth_provider_x509_cert_url: Optional[str] = None
+
     # Pipeline tuning
     max_videos: int = 10
     max_transcript_chars: int = 50_000   # ~12k tokens, safe for any model
