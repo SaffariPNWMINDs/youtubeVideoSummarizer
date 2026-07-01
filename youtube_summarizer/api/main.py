@@ -97,6 +97,22 @@ class SummarizeResponse(BaseModel):
     final_summary: str              # cross-video synthesis
     
 
+def _parse_filter_kwargs(
+    published_after_year="", published_before_year="", sort_by="views",
+    language="en", channel_filter="", exclude_keywords="", duration="", min_views=""
+) -> dict:
+    return {
+        "published_after_year": int(published_after_year) if str(published_after_year).strip() else None,
+        "published_before_year": int(published_before_year) if str(published_before_year).strip() else None,
+        "sort_by": sort_by or "views",
+        "language": language or "en",
+        "channel_filter": channel_filter or None,
+        "exclude_keywords": exclude_keywords or None,
+        "duration": duration or None,
+        "min_views": int(min_views) if str(min_views).strip() else None,
+    }
+
+
 @app.get("/auth/login")
 def auth_login():
     import os
@@ -294,6 +310,14 @@ async def search_by_image_stream(
     description: str = Form(""),
     max_videos: int = Form(5),
     provider: str = Form("openai"),
+    published_after_year: str = Form(""),
+    published_before_year: str = Form(""),
+    sort_by: str = Form("views"),
+    language: str = Form("en"),
+    channel_filter: str = Form(""),
+    exclude_keywords: str = Form(""),
+    duration: str = Form(""),
+    min_views: str = Form(""),
 ):
     import base64
     from openai import OpenAI
@@ -333,10 +357,11 @@ async def search_by_image_stream(
     search_query = vision_response.choices[0].message.content.strip().strip('"')
 
     pipeline = factory.build_pipeline(max_videos, provider)
+    filter_kwargs = _parse_filter_kwargs(published_after_year, published_before_year, sort_by, language, channel_filter, exclude_keywords, duration, min_views)
 
     def stream_and_store():
         yield _json.dumps({"type": "query", "message": search_query}) + "\n"
-        for chunk in pipeline.stream(search_query):
+        for chunk in pipeline.stream(search_query, **filter_kwargs):
             try:
                 parsed = _json.loads(chunk.strip())
                 if parsed.get("type") == "video":
@@ -355,6 +380,14 @@ async def search_by_voice_stream(
     description: str = Form(""),
     max_videos: int = Form(5),
     provider: str = Form("openai"),
+    published_after_year: str = Form(""),
+    published_before_year: str = Form(""),
+    sort_by: str = Form("views"),
+    language: str = Form("en"),
+    channel_filter: str = Form(""),
+    exclude_keywords: str = Form(""),
+    duration: str = Form(""),
+    min_views: str = Form(""),
 ):
     from openai import OpenAI
     import tempfile, os
@@ -408,10 +441,83 @@ async def search_by_voice_stream(
     search_query = query_response.choices[0].message.content.strip().strip('"')
 
     pipeline = factory.build_pipeline(max_videos, provider)
+    filter_kwargs = _parse_filter_kwargs(published_after_year, published_before_year, sort_by, language, channel_filter, exclude_keywords, duration, min_views)
 
     def stream_and_store():
         yield _json.dumps({"type": "query", "message": search_query, "transcription": transcription_text}) + "\n"
-        for chunk in pipeline.stream(search_query):
+        for chunk in pipeline.stream(search_query, **filter_kwargs):
+            try:
+                parsed = _json.loads(chunk.strip())
+                if parsed.get("type") == "video":
+                    vid = parsed["data"]
+                    transcript_store[vid["video_id"]] = vid.pop("transcript_text", "")
+            except Exception:
+                pass
+            yield chunk
+
+    return StreamingResponse(stream_and_store(), media_type="application/x-ndjson")
+
+
+class VideoSearchRequest(BaseModel):
+    frames: List[str]
+    question: str
+    max_videos: int = 5
+    provider: str = "openai"
+    published_after_year: Optional[int] = None
+    published_before_year: Optional[int] = None
+    sort_by: Optional[str] = "views"
+    language: Optional[str] = "en"
+    channel_filter: Optional[str] = None
+    exclude_keywords: Optional[str] = None
+    duration: Optional[str] = None
+    min_views: Optional[int] = None
+
+@app.post("/search-by-video/stream")
+def search_by_video_stream(request: VideoSearchRequest):
+    from openai import OpenAI
+    llm = OpenAI()
+
+    content = [
+        {
+            "type": "text",
+            "text": (
+                "These are evenly-spaced frames extracted from a short video the user recorded.\n\n"
+                f"User's question: \"{request.question}\"\n\n"
+                "Carefully analyze what is happening across all frames — identify the activity, "
+                "dance style, performance, sport, object, animal, place, or anything notable.\n\n"
+                "Generate a concise YouTube search query (3-8 words) that would find the most "
+                "relevant and informative videos to answer the user's question about what they see.\n\n"
+                "Respond with ONLY the search query, nothing else."
+            ),
+        }
+    ]
+    for frame_b64 in request.frames:
+        content.append({
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:image/jpeg;base64,{frame_b64}",
+                "detail": "low",
+            },
+        })
+
+    response = llm.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": content}],
+        max_tokens=50,
+    )
+    search_query = response.choices[0].message.content.strip().strip('"')
+
+    pipeline = factory.build_pipeline(request.max_videos, request.provider)
+    filter_kwargs = _parse_filter_kwargs(
+        request.published_after_year or "", request.published_before_year or "",
+        request.sort_by or "views", request.language or "en",
+        request.channel_filter or "", request.exclude_keywords or "",
+        request.duration or "", request.min_views or "",
+    )
+
+    def stream_and_store():
+        yield _json.dumps({"type": "query", "message": search_query}) + "\n"
+        for chunk in pipeline.stream(search_query, **filter_kwargs):
             try:
                 parsed = _json.loads(chunk.strip())
                 if parsed.get("type") == "video":
