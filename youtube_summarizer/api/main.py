@@ -3,7 +3,7 @@
 from pydantic import BaseModel
 from typing import List, Optional
 from enum import Enum
-from fastapi import HTTPException, FastAPI
+from fastapi import HTTPException, FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
@@ -286,6 +286,67 @@ def ask(request: AskRequest):
 
     return StreamingResponse(stream_answer(), media_type="text/plain")
 
+
+
+@app.post("/search-by-image/stream")
+async def search_by_image_stream(
+    image: UploadFile = File(...),
+    description: str = Form(""),
+    max_videos: int = Form(5),
+    provider: str = Form("openai"),
+):
+    import base64
+    from openai import OpenAI
+
+    image_bytes = await image.read()
+    b64 = base64.b64encode(image_bytes).decode("utf-8")
+    mime = image.content_type or "image/jpeg"
+
+    llm = OpenAI()
+    user_hint = f"\n\nUser's additional context: {description}" if description.strip() else ""
+    vision_response = llm.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": (
+                            "Look at this image carefully. Generate a concise, specific YouTube search query "
+                            "(3-8 words) that would find the most informative and relevant videos about the "
+                            "main subject or concept shown in the image. Consider educational content, "
+                            "tutorials, documentaries, or explanatory videos."
+                            + user_hint
+                            + "\n\nRespond with ONLY the search query, nothing else."
+                        ),
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime};base64,{b64}"},
+                    },
+                ],
+            }
+        ],
+        max_tokens=50,
+    )
+    search_query = vision_response.choices[0].message.content.strip().strip('"')
+
+    pipeline = factory.build_pipeline(max_videos, provider)
+
+    def stream_and_store():
+        yield _json.dumps({"type": "query", "message": search_query}) + "\n"
+        for chunk in pipeline.stream(search_query):
+            try:
+                parsed = _json.loads(chunk.strip())
+                if parsed.get("type") == "video":
+                    vid = parsed["data"]
+                    transcript_store[vid["video_id"]] = vid.pop("transcript_text", "")
+            except Exception:
+                pass
+            yield chunk
+
+    return StreamingResponse(stream_and_store(), media_type="application/x-ndjson")
 
 
 @app.post("/summarize")
