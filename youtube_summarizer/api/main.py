@@ -154,7 +154,7 @@ def auth_callback(code: str, state: str = None):
     response = llm.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": "You are a witty assistant. Generate a short, funny, personalized greeting (1-2 sentences max) for a user based on their YouTube interests. Be creative and reference something specific from their interests. No emojis."},
+            {"role": "system", "content": "You are a witty assistant. Generate a funny, personalized greeting for a user based on their YouTube interests. Maximum 20 words. Be creative and reference something specific. No emojis."},
             {"role": "user", "content": context},
         ],
         max_tokens=100,
@@ -188,7 +188,7 @@ def get_greeting(session: str):
     response = llm.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": "You are a witty assistant. Generate a short, funny, personalized greeting (1-2 sentences max) for a user based on their YouTube interests. Be creative and reference something specific. No emojis."},
+            {"role": "system", "content": "You are a witty assistant. Generate a funny, personalized greeting for a user based on their YouTube interests. Maximum 20 words. Be creative and reference something specific. No emojis."},
             {"role": "user", "content": context},
         ],
         max_tokens=100,
