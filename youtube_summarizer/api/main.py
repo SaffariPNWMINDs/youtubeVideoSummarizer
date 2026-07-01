@@ -349,6 +349,81 @@ async def search_by_image_stream(
     return StreamingResponse(stream_and_store(), media_type="application/x-ndjson")
 
 
+@app.post("/search-by-voice/stream")
+async def search_by_voice_stream(
+    audio: UploadFile = File(...),
+    description: str = Form(""),
+    max_videos: int = Form(5),
+    provider: str = Form("openai"),
+):
+    from openai import OpenAI
+    import tempfile, os
+
+    audio_bytes = await audio.read()
+
+    # Determine file extension from content type or filename
+    content_type = audio.content_type or "audio/webm"
+    ext_map = {
+        "audio/webm": "webm", "audio/ogg": "ogg", "audio/wav": "wav",
+        "audio/mpeg": "mp3", "audio/mp4": "mp4", "audio/x-m4a": "m4a",
+    }
+    ext = ext_map.get(content_type, "webm")
+
+    llm = OpenAI()
+
+    # Step 1: Transcribe with Whisper (handles speech; returns best-effort for music/sounds)
+    with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp:
+        tmp.write(audio_bytes)
+        tmp_path = tmp.name
+
+    try:
+        with open(tmp_path, "rb") as f:
+            transcription = llm.audio.transcriptions.create(
+                model="whisper-1",
+                file=f,
+                response_format="text",
+            )
+    finally:
+        os.unlink(tmp_path)
+
+    transcription_text = transcription.strip() if isinstance(transcription, str) else str(transcription).strip()
+
+    # Step 2: GPT-4o interprets transcription + optional user description → search query
+    user_hint = f"\nUser's additional context: {description}" if description.strip() else ""
+    prompt = (
+        "A user submitted an audio clip and wants to find relevant YouTube videos.\n\n"
+        f"Whisper transcription of the audio: \"{transcription_text}\"\n"
+        f"{user_hint}\n\n"
+        "The audio could be spoken words/a question, or music/sounds (instrument, song, ambient).\n"
+        "Based on the transcription and any user context, generate a concise YouTube search query "
+        "(3-8 words) that finds the most informative and relevant videos.\n\n"
+        "Respond with ONLY the search query, nothing else."
+    )
+
+    query_response = llm.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=50,
+    )
+    search_query = query_response.choices[0].message.content.strip().strip('"')
+
+    pipeline = factory.build_pipeline(max_videos, provider)
+
+    def stream_and_store():
+        yield _json.dumps({"type": "query", "message": search_query, "transcription": transcription_text}) + "\n"
+        for chunk in pipeline.stream(search_query):
+            try:
+                parsed = _json.loads(chunk.strip())
+                if parsed.get("type") == "video":
+                    vid = parsed["data"]
+                    transcript_store[vid["video_id"]] = vid.pop("transcript_text", "")
+            except Exception:
+                pass
+            yield chunk
+
+    return StreamingResponse(stream_and_store(), media_type="application/x-ndjson")
+
+
 @app.post("/summarize")
 def summarize(request: SummarizeRequest):
     
