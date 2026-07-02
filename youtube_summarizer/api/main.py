@@ -292,7 +292,7 @@ def ask(request: AskRequest):
             model="gpt-4o-mini",
             stream=True,
             messages=[
-                {"role": "system", "content": "Answer the question using only the provided transcript context."},
+                {"role": "system", "content": "Answer the question using only the provided transcript context. Always respond in the same language the user asked the question in. If the question is in Farsi, answer in Farsi. If in Spanish, answer in Spanish. Match the user's language exactly."},
                 {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {request.question}"},
             ],
         ):
