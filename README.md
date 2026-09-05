@@ -63,6 +63,16 @@ The pipeline depends only on abstract base classes (`services/base.py`), never c
 
 Domain objects (`Video`, `Transcript`, `VideoSummary`, `AggregatedSummary`) are immutable, validated Pydantic models, not dicts — so a malformed LLM response fails fast at the parsing boundary instead of silently corrupting downstream state.
 
+**Key OOP patterns used**
+
+| Pattern | Where | Why |
+|---|---|---|
+| Abstract Base Class | `services/base.py` | Defines contracts, enables DI |
+| Strategy | All services | Swap implementations without changing the pipeline |
+| Dependency Injection | `SearchPipeline.__init__` | Testable, decoupled |
+| Pydantic models | `models/` | Validated, immutable domain objects |
+| Factory function | `factory.py: build_pipeline()` | Centralised wiring of real dependencies |
+
 ## Tech stack
 
 | Layer | Technology |
@@ -77,6 +87,20 @@ Domain objects (`Video`, `Transcript`, `VideoSummary`, `AggregatedSummary`) are 
 | Packaging | Poetry |
 
 ## Quick start
+
+### Prerequisites
+- Python 3.11+
+- [Poetry](https://python-poetry.org/docs/#installation) (`pip install poetry`)
+- Node.js (for the frontend)
+- A [YouTube Data API v3](https://console.cloud.google.com) key
+- An [OpenAI API](https://platform.openai.com) key and/or an [Anthropic API](https://console.anthropic.com) key
+
+Clone the repo once, then follow whichever section(s) you need — everything below assumes you're in the cloned `youtubeVideoSummarizer/` directory.
+
+```bash
+git clone https://github.com/SaffariPNWMINDs/youtubeVideoSummarizer.git
+cd youtubeVideoSummarizer
+```
 
 ### Backend
 
@@ -93,10 +117,42 @@ Or use the CLI directly, no server needed:
 poetry run yt-summarize --query "machine learning basics" -n 5 --verbose
 ```
 
+<details>
+<summary>Example CLI output</summary>
+
+```
+────────────────────────────────────────────────────
+  TOPIC: MACHINE LEARNING BASICS
+  8 videos analysed
+────────────────────────────────────────────────────
+
+📋  OVERVIEW
+
+  Machine learning is a branch of AI that enables computers to learn from data
+  without explicit programming. Across the analysed videos, experts agree that
+  supervised learning is the best entry point for beginners...
+
+🔑  KEY TAKEAWAYS
+
+   1. Start with supervised learning — it has the clearest mental model
+   2. Understand bias-variance tradeoff before choosing model complexity
+   ...
+
+📺  VIDEOS ANALYSED
+
+    1,200,000 views  Machine Learning for Beginners — Full Course
+                     https://youtube.com/watch?v=...
+                     • ML is about pattern recognition from examples
+                     • Three main types: supervised, unsupervised, reinforcement
+                     • scikit-learn is the best library to start with
+```
+
+</details>
+
 ### Frontend
 
 ```bash
-cd frontend
+cd frontend   # from repo root
 npm install
 npm run dev
 ```
@@ -106,7 +162,7 @@ The frontend expects the API at `http://localhost:8000` (see CORS config in `api
 ### Tests
 
 ```bash
-cd youtube_summarizer
+cd youtube_summarizer   # from repo root
 poetry run pytest -v
 ```
 
@@ -138,12 +194,15 @@ frontend/
 
 ## Roadmap
 
-| Stage | Status | Focus |
-|---|---|---|
-| CLI pipeline | ✅ Done | Search → transcript → summarize, OOP fundamentals |
-| Web app (FastAPI + React) | ✅ Done | Streaming API, multi-provider LLMs, filters |
-| RAG Q&A | ✅ Done | ChromaDB, embeddings, per-video chat |
-| Multimodal search | 🔨 Backend done, UI pending | Image / voice / video-frame search entry points |
-| Personalization | 🔨 Backend done, UI pending | Google OAuth, subscriptions-aware greeting |
-| Caching & deployment | ⏳ Planned | Redis, Docker, CI/CD to a cloud host |
-| Production hardening | ⏳ Planned | Persistent auth, observability, rate limiting |
+This was built as a progressively-scoped ML app — each phase adds a layer rather than rewriting the last.
+
+| Version | Status | Goal | Key tech |
+|---|---|---|---|
+| **Phase 0** | ✅ Done | CLI working locally | Python, Pydantic, OOP service layer |
+| **V0** | ✅ Done | Web app: streaming API + React UI | FastAPI, React, NDJSON streaming |
+| **V1** | ✅ Done | Multi-provider LLMs, search filters | OpenAI + Claude, YouTube Data API filters |
+| **V2** | ✅ Done | RAG + Q&A on transcripts | ChromaDB, embeddings |
+| **V2.5** | 🔨 Backend done, UI pending | Multimodal search, personalization | GPT-4o vision/audio, Google OAuth |
+| **V3** | ⏳ Planned | Caching, CI/CD, deployment | Redis, Docker, GitHub Actions → cloud host |
+| **V4** | ⏳ Planned | Production-ready | Persistent auth, observability, rate limiting |
+| **V5** | ⏳ Planned | Monetization | Stripe, CDN |
