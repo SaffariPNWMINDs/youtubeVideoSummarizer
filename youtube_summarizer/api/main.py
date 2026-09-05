@@ -8,7 +8,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from google_auth_oauthlib.flow import Flow
-from googleapiclient.discovery import build as google_build
 from fastapi.responses import RedirectResponse
 import json as _json
 
@@ -390,7 +389,8 @@ async def search_by_voice_stream(
     min_views: str = Form(""),
 ):
     from openai import OpenAI
-    import tempfile, os
+    import tempfile
+    import os
 
     audio_bytes = await audio.read()
 
