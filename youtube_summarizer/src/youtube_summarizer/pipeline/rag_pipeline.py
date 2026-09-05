@@ -1,7 +1,6 @@
 import chromadb
 from openai import OpenAI
 
-client = OpenAI()
 chroma_client = chromadb.Client()
 
 def is_video_indexed(video_id: str) -> bool:
@@ -20,6 +19,7 @@ def chunk_transcript(transcript: str, chunk_size: int = 2000, overlap: int = 200
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
+    client = OpenAI()
     response = client.embeddings.create(
         model="text-embedding-3-small",
         input=texts,
