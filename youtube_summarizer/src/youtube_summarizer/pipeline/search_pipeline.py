@@ -1,7 +1,7 @@
 """
 SearchPipeline — the orchestrator.
 
-OOP lesson — Dependency Injection:
+Dependency Injection:
   The pipeline receives its services via the constructor rather than
   creating them internally. This is crucial for:
     - Testing: pass in Mock services, no real API calls needed
