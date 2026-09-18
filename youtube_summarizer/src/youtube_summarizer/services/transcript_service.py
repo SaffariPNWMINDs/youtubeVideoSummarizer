@@ -26,9 +26,14 @@ class YouTubeTranscriptService(BaseTranscriptService):
     Fetches captions from YouTube using the youtube-transcript-api library.
 
     Graceful degradation strategy:
-      1. Try English captions (manual or auto-generated)
-      2. If not found → return None (pipeline will skip this video)
-      3. Any other error → log and return None (never crash the pipeline)
+      1. Try English captions (manual or auto-generated) — the common case
+      2. If no English track exists, fall back to whatever caption track
+         IS available (e.g. Persian, Spanish, ...) instead of skipping the
+         video outright. LLMs read non-English transcripts fine, so there's
+         no reason to require English captions just to summarize a video.
+      3. If no caption track exists in any language → return None (pipeline
+         will skip this video)
+      4. Any other error → log and return None (never crash the pipeline)
 
     NOTE: In V1 we will add a Whisper fallback here for videos with no captions.
     The BaseTranscriptService interface won't change — just this implementation.
@@ -46,18 +51,28 @@ class YouTubeTranscriptService(BaseTranscriptService):
                 jar.load()
                 session.cookies = jar
             ytt_api = YouTubeTranscriptApi(http_client=session)
-            raw_segments = ytt_api.fetch(
-                video.video_id,
-                languages=_PREFERRED_LANGUAGES,
-            ).to_raw_data()
-            transcript = self._build_transcript(video.video_id, raw_segments)
+
+            try:
+                fetched = ytt_api.fetch(video.video_id, languages=_PREFERRED_LANGUAGES)
+            except NoTranscriptFound:
+                available = ytt_api.list(video.video_id)
+                transcript_obj = next(iter(available))
+                logger.info(
+                    f"  No English track — using '{transcript_obj.language_code}' instead"
+                )
+                fetched = transcript_obj.fetch()
+
+            raw_segments = fetched.to_raw_data()
+            transcript = self._build_transcript(
+                video.video_id, raw_segments, language=fetched.language_code
+            )
             logger.info(
                 f"  ✓ {transcript.word_count:,} words "
-                f"({transcript.char_count:,} chars)"
+                f"({transcript.char_count:,} chars, lang={transcript.language})"
             )
             return transcript
 
-        except (TranscriptsDisabled, NoTranscriptFound):
+        except (TranscriptsDisabled, NoTranscriptFound, StopIteration):
             logger.warning(f"  ✗ No transcript available for {video.video_id}")
             return None
 
@@ -75,7 +90,7 @@ class YouTubeTranscriptService(BaseTranscriptService):
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _build_transcript(video_id: str, raw: list) -> Transcript:
+    def _build_transcript(video_id: str, raw: list, language: str = "en") -> Transcript:
         """Convert the raw API list-of-dicts into our typed Transcript model."""
         segments = [
             TranscriptSegment(
@@ -86,4 +101,4 @@ class YouTubeTranscriptService(BaseTranscriptService):
             for seg in raw
             if seg.get("text", "").strip()          # skip empty segments
         ]
-        return Transcript(video_id=video_id, segments=segments, language="en")
+        return Transcript(video_id=video_id, segments=segments, language=language)
