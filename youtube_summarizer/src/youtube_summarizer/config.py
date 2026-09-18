@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     # Pipeline tuning
     max_videos: int = 10
     max_transcript_chars: int = 50_000   # ~12k tokens, safe for any model
+    pipeline_max_workers: int = 5        # concurrent workers for the map stage (transcript fetch + summarize)
     claude_per_video_model: str = "claude-haiku-4-5"
     claude_aggregate_model: str = "claude-sonnet-4-6"
     openai_per_video_model: str = "gpt-4o-mini"

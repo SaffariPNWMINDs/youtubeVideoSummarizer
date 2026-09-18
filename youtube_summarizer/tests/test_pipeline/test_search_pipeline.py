@@ -6,6 +6,7 @@ abort thresholds, correct sequencing — without hitting any real API.
 All services are replaced with simple in-memory fakes.
 """
 
+import time
 from typing import List, Optional
 
 from youtube_summarizer.pipeline.search_pipeline import SearchPipeline
@@ -46,6 +47,47 @@ class FakeTranscriptService(BaseTranscriptService):
 
 class FakeSummarizerService(BaseSummarizerService):
     def summarize_video(self, video: Video, transcript: Transcript) -> VideoSummary:
+        return VideoSummary(
+            video_id=video.video_id,
+            title=video.title,
+            channel_name=video.channel_name,
+            view_count=video.view_count,
+            video_url=video.url,
+            key_points=["Point A", "Point B", "Point C"],
+            raw_summary="Fake summary.",
+        )
+
+    def aggregate_summaries(self, query: str, summaries: List[VideoSummary]) -> AggregatedSummary:
+        return AggregatedSummary(
+            query=query,
+            video_summaries=summaries,
+            final_summary="Aggregated fake summary.",
+            key_takeaways=["Takeaway 1", "Takeaway 2", "Takeaway 3"],
+        )
+
+
+class SlowFakeTranscriptService(BaseTranscriptService):
+    """Simulates network latency, so tests can measure whether calls overlap."""
+
+    def __init__(self, delay: float):
+        self._delay = delay
+
+    def fetch(self, video: Video) -> Optional[Transcript]:
+        time.sleep(self._delay)
+        return Transcript(
+            video_id=video.video_id,
+            segments=[TranscriptSegment(text="Fake transcript content.", start=0.0, duration=5.0)],
+        )
+
+
+class SlowFakeSummarizerService(BaseSummarizerService):
+    """Simulates LLM call latency, so tests can measure whether calls overlap."""
+
+    def __init__(self, delay: float):
+        self._delay = delay
+
+    def summarize_video(self, video: Video, transcript: Transcript) -> VideoSummary:
+        time.sleep(self._delay)
         return VideoSummary(
             video_id=video.video_id,
             title=video.title,
@@ -137,3 +179,33 @@ class TestSearchPipeline:
         assert "python tutorial" in markdown.lower()
         assert "# Summary" in markdown
         assert "## Key Takeaways" in markdown
+
+    def test_map_stage_runs_videos_in_parallel(self):
+        """
+        Each video's (transcript fetch + summarize) takes `delay` seconds.
+        If the map stage were sequential, N videos would take N * delay.
+        Running in parallel, wall time should stay close to a single delay.
+        """
+        delay = 0.2
+        video_count = 5
+        videos = [make_video(f"v{i}") for i in range(video_count)]
+
+        pipeline = SearchPipeline(
+            search_service=FakeSearchService(videos),
+            transcript_service=SlowFakeTranscriptService(delay=delay),
+            summarizer_service=SlowFakeSummarizerService(delay=delay),
+            min_summaries=3,
+            max_workers=video_count,
+        )
+
+        start = time.perf_counter()
+        result = pipeline.run("test query")
+        elapsed = time.perf_counter() - start
+
+        assert result is not None
+        assert result.video_count == video_count
+        # Sequential would take ~video_count * 2 * delay (2 seconds here).
+        # Parallel should take roughly 2 * delay plus scheduling overhead.
+        assert elapsed < video_count * delay, (
+            f"expected parallel execution (<{video_count * delay:.2f}s), took {elapsed:.2f}s"
+        )

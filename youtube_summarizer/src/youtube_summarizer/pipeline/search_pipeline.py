@@ -12,9 +12,14 @@ Dependency Injection:
 import json
 import logging
 import re
-from typing import Optional, Generator, List
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from typing import Optional, Generator, List, Tuple
 
-from youtube_summarizer.models.summary import AggregatedSummary
+from youtube_summarizer.config import settings
+from youtube_summarizer.models.summary import AggregatedSummary, VideoSummary
+from youtube_summarizer.models.transcript import Transcript
+from youtube_summarizer.models.video import Video
 from youtube_summarizer.services.base import (
     BaseTranscriptService,
     BaseSummarizerService,
@@ -22,6 +27,14 @@ from youtube_summarizer.services.base import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _MapResult:
+    """Outcome of running the map stage (fetch transcript + summarize) for one video."""
+    transcript: Optional[Transcript]
+    summary: Optional[VideoSummary]
+    error: Optional[Exception]
 
 
 class SearchPipeline:
@@ -44,12 +57,48 @@ class SearchPipeline:
         summarizer_service: BaseSummarizerService,
         max_videos: int = 10,
         min_summaries: int = 3,     # abort if we get fewer than this
+        max_workers: Optional[int] = None,
     ) -> None:
         self._search = search_service
         self._transcript = transcript_service
         self._summarizer = summarizer_service
         self._max_videos = max_videos
         self._min_summaries = min_summaries
+        self._max_workers = max_workers or settings.pipeline_max_workers
+
+    # ------------------------------------------------------------------ #
+    #  Map stage — run per-video work (fetch transcript + summarize) in    #
+    #  parallel across a thread pool. Each video's work is independent,    #
+    #  so this is the "map" half of the map-reduce pattern; aggregation    #
+    #  ("reduce") still happens once, after every video is mapped.         #
+    # ------------------------------------------------------------------ #
+
+    def _process_video(self, video: Video) -> _MapResult:
+        """Runs on a worker thread: fetch transcript, then summarize."""
+        transcript = self._transcript.fetch(video)
+        if transcript is None:
+            return _MapResult(transcript=None, summary=None, error=None)
+
+        try:
+            summary = self._summarizer.summarize_video(video, transcript)
+            return _MapResult(transcript=transcript, summary=summary, error=None)
+        except Exception as e:
+            return _MapResult(transcript=transcript, summary=None, error=e)
+
+    def _map_videos(
+        self, videos: List[Video]
+    ) -> Generator[Tuple[int, Video, _MapResult], None, None]:
+        """
+        Submits all videos to a thread pool at once, so transcript fetching
+        and summarization happen concurrently, then yields results one by
+        one in the *original* video order (each yield blocks only on that
+        video's own future, which is typically already done or close to it
+        since every future started running as soon as it was submitted).
+        """
+        with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
+            futures = [executor.submit(self._process_video, video) for video in videos]
+            for i, (video, future) in enumerate(zip(videos, futures), 1):
+                yield i, video, future.result()
 
     def run(self, query: str) -> Optional[AggregatedSummary]:
         """
@@ -67,26 +116,25 @@ class SearchPipeline:
             return None
         logger.info(f"Step 1 complete: {len(videos)} videos found")
 
-        # --- Steps 2 + 3: Fetch transcripts and summarize ---
+        # --- Steps 2 + 3: Fetch transcripts and summarize (parallel map stage) ---
         video_summaries = []
         skipped = 0
 
-        for i, video in enumerate(videos, 1):
+        for i, video, result in self._map_videos(videos):
             logger.info(f"Processing video {i}/{len(videos)}: {video.title[:50]}")
 
-            transcript = self._transcript.fetch(video)
-            if transcript is None:
+            if result.transcript is None:
                 skipped += 1
                 logger.warning("  Skipped (no transcript)")
                 continue
 
-            try:
-                summary = self._summarizer.summarize_video(video, transcript)
-                video_summaries.append(summary)
-                logger.info(f"  ✓ Summarized ({len(summary.key_points)} key points)")
-            except Exception as e:
+            if result.error is not None:
                 skipped += 1
-                logger.error(f"  ✗ Summarization failed: {e}")
+                logger.error(f"  ✗ Summarization failed: {result.error}")
+                continue
+
+            video_summaries.append(result.summary)
+            logger.info(f"  ✓ Summarized ({len(result.summary.key_points)} key points)")
 
         logger.info(
             f"Step 2+3 complete: {len(video_summaries)} summarized, {skipped} skipped"
@@ -148,35 +196,35 @@ class SearchPipeline:
         video_summaries = []
         skipped = 0
 
-        for i, video in enumerate(videos, 1):
+        for i, video, result in self._map_videos(videos):
             yield emit({"type": "status", "message": f"Processing video {i}/{len(videos)}: {video.title[:50]}"})
 
-            transcript = self._transcript.fetch(video)
-            if transcript is None:
+            if result.transcript is None:
                 skipped += 1
                 continue
 
-            try:
-                summary = self._summarizer.summarize_video(video, transcript)
-                video_summaries.append(summary)
-                yield emit({
-                    "type": "video",
-                    "data": {
-                        "video_id": summary.video_id,
-                        "title": summary.title,
-                        "channel_name": summary.channel_name,
-                        "view_count": summary.view_count,
-                        "video_url": summary.video_url,
-                        "key_points": summary.key_points,
-                        "key_points_timed": [{"text": kp.text, "timestamp": kp.timestamp} for kp in summary.key_points_timed],
-                        "raw_summary": summary.raw_summary,
-                        "categories": [{"category": c.category, "percentage": c.percentage} for c in summary.categories],
-                        "transcript_text": transcript.full_text,
-                    }
-                })
-            except Exception as e:
+            if result.error is not None:
                 skipped += 1
-                logger.error(f"Summarization failed: {e}")
+                logger.error(f"Summarization failed: {result.error}")
+                continue
+
+            summary = result.summary
+            video_summaries.append(summary)
+            yield emit({
+                "type": "video",
+                "data": {
+                    "video_id": summary.video_id,
+                    "title": summary.title,
+                    "channel_name": summary.channel_name,
+                    "view_count": summary.view_count,
+                    "video_url": summary.video_url,
+                    "key_points": summary.key_points,
+                    "key_points_timed": [{"text": kp.text, "timestamp": kp.timestamp} for kp in summary.key_points_timed],
+                    "raw_summary": summary.raw_summary,
+                    "categories": [{"category": c.category, "percentage": c.percentage} for c in summary.categories],
+                    "transcript_text": result.transcript.full_text,
+                }
+            })
 
         if len(video_summaries) < self._min_summaries:
             yield emit({"type": "error", "message": f"Only {len(video_summaries)} videos could be summarized (need at least {self._min_summaries})"})
@@ -216,35 +264,35 @@ class SearchPipeline:
         video_summaries = []
         skipped = 0
 
-        for i, video in enumerate(videos, 1):
+        for i, video, result in self._map_videos(videos):
             yield emit({"type": "status", "message": f"Processing video {i}/{len(videos)}: {video.title[:50]}"})
 
-            transcript = self._transcript.fetch(video)
-            if transcript is None:
+            if result.transcript is None:
                 skipped += 1
                 continue
 
-            try:
-                summary = self._summarizer.summarize_video(video, transcript)
-                video_summaries.append(summary)
-                yield emit({
-                    "type": "video",
-                    "data": {
-                        "video_id": summary.video_id,
-                        "title": summary.title,
-                        "channel_name": summary.channel_name,
-                        "view_count": summary.view_count,
-                        "video_url": summary.video_url,
-                        "key_points": summary.key_points,
-                        "key_points_timed": [{"text": kp.text, "timestamp": kp.timestamp} for kp in summary.key_points_timed],
-                        "raw_summary": summary.raw_summary,
-                        "categories": [{"category": c.category, "percentage": c.percentage} for c in summary.categories],
-                        "transcript_text": transcript.full_text,
-                    }
-                })
-            except Exception as e:
+            if result.error is not None:
                 skipped += 1
-                logger.error(f"Summarization failed: {e}")
+                logger.error(f"Summarization failed: {result.error}")
+                continue
+
+            summary = result.summary
+            video_summaries.append(summary)
+            yield emit({
+                "type": "video",
+                "data": {
+                    "video_id": summary.video_id,
+                    "title": summary.title,
+                    "channel_name": summary.channel_name,
+                    "view_count": summary.view_count,
+                    "video_url": summary.video_url,
+                    "key_points": summary.key_points,
+                    "key_points_timed": [{"text": kp.text, "timestamp": kp.timestamp} for kp in summary.key_points_timed],
+                    "raw_summary": summary.raw_summary,
+                    "categories": [{"category": c.category, "percentage": c.percentage} for c in summary.categories],
+                    "transcript_text": result.transcript.full_text,
+                }
+            })
 
         if not video_summaries:
             yield emit({"type": "error", "message": "Could not summarize any of the provided videos"})
