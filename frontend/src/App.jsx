@@ -84,22 +84,33 @@ function App() {
         body: JSON.stringify(body),
       })
 
+      const handleChunk = (chunk) => {
+        if (chunk.type === "status") setStatus(chunk.message)
+        else if (chunk.type === "video") setVideos((prev) => [...prev, chunk.data])
+        else if (chunk.type === "final") { setFinal(chunk.data); setStatus("") }
+        else if (chunk.type === "error") { setError(chunk.message); setStatus("") }
+      }
+
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
+      let buffer = ""
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
 
-        const lines = decoder.decode(value).split("\n").filter(Boolean)
+        // A single NDJSON line isn't guaranteed to arrive in one read() —
+        // long lines can be split across reads. Buffer partial lines and
+        // only parse once a full line (terminated by \n) has arrived.
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split("\n")
+        buffer = lines.pop() ?? ""
         for (const line of lines) {
-          const chunk = JSON.parse(line)
-          if (chunk.type === "status") setStatus(chunk.message)
-          else if (chunk.type === "video") setVideos((prev) => [...prev, chunk.data])
-          else if (chunk.type === "final") { setFinal(chunk.data); setStatus("") }
-          else if (chunk.type === "error") { setError(chunk.message); setStatus("") }
+          if (line) handleChunk(JSON.parse(line))
         }
       }
+
+      if (buffer.trim()) handleChunk(JSON.parse(buffer))
     } catch (err) {
       setError(err.message)
     } finally {

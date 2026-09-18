@@ -9,6 +9,10 @@ from youtube_summarizer.models.summary import AggregatedSummary, CategoryBreakdo
 from youtube_summarizer.models.transcript import Transcript
 from youtube_summarizer.models.video import Video
 from youtube_summarizer.services.base import BaseSummarizerService
+from youtube_summarizer.services.summary_scaling import (
+    key_point_count_for_duration,
+    scale_max_tokens,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,13 +42,14 @@ class OpenAISummarizerService(BaseSummarizerService):
     def summarize_video(self, video: Video, transcript: Transcript) -> VideoSummary:
         logger.info(f"Summarizing '{video.title[:55]}'")
 
+        key_point_count = key_point_count_for_duration(transcript.duration_seconds)
         truncated_text = transcript.truncate_with_timestamps(settings.max_transcript_chars)
-        prompt = self._build_video_prompt(video, truncated_text)
+        prompt = self._build_video_prompt(video, truncated_text, key_point_count)
 
         raw_response = self._call_llm(
             model=settings.openai_per_video_model,
             prompt=prompt,
-            max_tokens=800,
+            max_tokens=scale_max_tokens(800, key_point_count),
         )
         parsed = self._parse_json(raw_response)
 
@@ -120,7 +125,7 @@ class OpenAISummarizerService(BaseSummarizerService):
         return json.loads(text)
 
     @staticmethod
-    def _build_video_prompt(video: Video, transcript_text: str) -> str:
+    def _build_video_prompt(video: Video, transcript_text: str, key_point_count: int) -> str:
         return f"""You are summarizing a YouTube video transcript. Be concise and factual.
 
 Video title: {video.title}
@@ -145,7 +150,7 @@ Return ONLY a JSON object (no markdown, no explanation) with these exact keys:
 }}
 
 Rules:
-- key_points: 3 to 5 items, each under 20 words, written as statements not questions
+- key_points: exactly {key_point_count} items, each under 20 words, written as statements not questions. Cover the full breadth of what the video discusses — don't repeat the same idea in different words.
 - timestamp: seconds from video start where this topic is discussed (integer). Use the [MM:SS] markers in the transcript to estimate. If unsure, omit (null).
 - raw_summary: plain prose, under 100 words
 - categories: 3 to 6 topics freely identified from the content, percentages must sum to 100

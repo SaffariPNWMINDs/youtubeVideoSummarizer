@@ -40,6 +40,12 @@ class Transcript(BaseModel):
     def word_count(self) -> int:
         return len(self.full_text.split())
 
+    @computed_field
+    @property
+    def duration_seconds(self) -> float:
+        """Approximate video length, derived from the last caption segment."""
+        return max((seg.end for seg in self.segments), default=0.0)
+
     def truncate_with_timestamps(self, max_chars: int) -> str:
         """
         Returns transcript text with timestamps every ~30 seconds.

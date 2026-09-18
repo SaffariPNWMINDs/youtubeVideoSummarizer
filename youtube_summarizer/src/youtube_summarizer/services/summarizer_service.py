@@ -9,6 +9,10 @@ from youtube_summarizer.models.summary import AggregatedSummary, VideoSummary
 from youtube_summarizer.models.transcript import Transcript
 from youtube_summarizer.models.video import Video
 from youtube_summarizer.services.base import BaseSummarizerService
+from youtube_summarizer.services.summary_scaling import (
+    key_point_count_for_duration,
+    scale_max_tokens,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +32,8 @@ class ClaudeSummarizerService(BaseSummarizerService):
         self._client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
         logger.debug(
             f"ClaudeSummarizerService initialised "
-            f"(per-video: {settings.per_video_model}, "
-            f"aggregate: {settings.aggregate_model})"
+            f"(per-video: {settings.claude_per_video_model}, "
+            f"aggregate: {settings.claude_aggregate_model})"
         )
 
     # ------------------------------------------------------------------ #
@@ -39,13 +43,14 @@ class ClaudeSummarizerService(BaseSummarizerService):
     def summarize_video(self, video: Video, transcript: Transcript) -> VideoSummary:
         logger.info(f"Summarizing '{video.title[:55]}'")
 
+        key_point_count = key_point_count_for_duration(transcript.duration_seconds)
         truncated_text = transcript.truncate(settings.max_transcript_chars)
-        prompt = self._build_video_prompt(video, truncated_text)
+        prompt = self._build_video_prompt(video, truncated_text, key_point_count)
 
         raw_response = self._call_llm(
-            model=settings.per_video_model,
+            model=settings.claude_per_video_model,
             prompt=prompt,
-            max_tokens=600,
+            max_tokens=scale_max_tokens(600, key_point_count),
         )
         parsed = self._parse_json(raw_response)
 
@@ -66,7 +71,7 @@ class ClaudeSummarizerService(BaseSummarizerService):
 
         prompt = self._build_aggregate_prompt(query, summaries)
         raw_response = self._call_llm(
-            model=settings.aggregate_model,
+            model=settings.claude_aggregate_model,
             prompt=prompt,
             max_tokens=1200,
         )
@@ -106,7 +111,7 @@ class ClaudeSummarizerService(BaseSummarizerService):
         return json.loads(text)
 
     @staticmethod
-    def _build_video_prompt(video: Video, transcript_text: str) -> str:
+    def _build_video_prompt(video: Video, transcript_text: str, key_point_count: int) -> str:
         return f"""You are summarizing a YouTube video transcript. Be concise and factual.
 
 Video title: {video.title}
@@ -123,7 +128,7 @@ Return ONLY a JSON object (no markdown, no explanation) with these exact keys:
 }}
 
 Rules:
-- key_points: 3 to 5 items, each under 20 words, written as statements not questions
+- key_points: exactly {key_point_count} items, each under 20 words, written as statements not questions. Cover the full breadth of what the video discusses — don't repeat the same idea in different words.
 - raw_summary: plain prose, under 100 words
 - JSON only — no markdown fences, no extra text"""
 

@@ -1,6 +1,8 @@
+import json
+
 from fastapi.testclient import TestClient
 from unittest.mock import MagicMock
-from api.main import app
+from api.main import app, _relay_pipeline_stream, transcript_store
 
 client = TestClient(app)
 
@@ -43,6 +45,45 @@ def test_summarize_required_query(mocker):
     
     #assert the response
     assert response.status_code == 422  # Unprocessable Entity due to missing required field
+
+
+class TestRelayPipelineStream:
+    """
+    Regression tests for the bug behind the "Bad Unicode escape" /
+    "Unterminated string in JSON" frontend errors: the relay used to
+    yield the ORIGINAL chunk (with transcript_text still inside) even
+    after popping transcript_text off the parsed copy, so the huge
+    transcript payload — much larger for non-English text, since
+    json.dumps escapes every non-ASCII char as \\uXXXX — was still sent
+    to the client on every "video" event.
+    """
+
+    def test_strips_transcript_text_from_video_events(self):
+        video_event = json.dumps({
+            "type": "video",
+            "data": {"video_id": "v1", "title": "Test", "transcript_text": "سلام دنیا " * 1000},
+        }) + "\n"
+
+        relayed = list(_relay_pipeline_stream([video_event]))
+
+        assert len(relayed) == 1
+        parsed = json.loads(relayed[0])
+        assert "transcript_text" not in parsed["data"]
+        assert transcript_store["v1"] == "سلام دنیا " * 1000
+
+    def test_passes_through_non_video_events_unchanged(self):
+        status_event = json.dumps({"type": "status", "message": "Searching..."}) + "\n"
+
+        relayed = list(_relay_pipeline_stream([status_event]))
+
+        assert relayed == [status_event]
+
+    def test_passes_through_malformed_chunks_unchanged(self):
+        broken_chunk = "not valid json\n"
+
+        relayed = list(_relay_pipeline_stream([broken_chunk]))
+
+        assert relayed == [broken_chunk]
 
 
 

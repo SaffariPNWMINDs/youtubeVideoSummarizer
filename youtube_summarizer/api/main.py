@@ -21,6 +21,34 @@ app = FastAPI()
 # In-memory store: video_id → full transcript text
 transcript_store: dict[str, str] = {}
 
+
+def _relay_pipeline_stream(chunks):
+    """
+    Relays a pipeline's NDJSON chunks to the client, stripping the (large)
+    transcript_text field out of "video" events first.
+
+    The frontend never uses transcript_text — it's kept server-side in
+    transcript_store for /ask. Forwarding it anyway bloats a video's JSON
+    line enough that it can straddle two separate stream reads on the
+    client, which breaks the frontend's line-based JSON.parse (visible as
+    "Unterminated string" / "Bad Unicode escape" errors — non-English
+    transcripts trigger this more easily since json.dumps escapes every
+    non-ASCII character as a 6-character \\uXXXX sequence, ~3x the size).
+    """
+    for chunk in chunks:
+        try:
+            parsed = _json.loads(chunk.strip())
+        except Exception:
+            yield chunk
+            continue
+
+        if parsed.get("type") == "video":
+            vid = parsed["data"]
+            transcript_store[vid["video_id"]] = vid.pop("transcript_text", "")
+            yield _json.dumps(parsed) + "\n"
+        else:
+            yield chunk
+
 # In-memory store: session_id → user profile (interests + name)
 user_sessions: dict[str, dict] = {}
 
@@ -219,27 +247,18 @@ class SummarizeUrlsRequest(BaseModel):
 def summarize_urls_stream(request: SummarizeUrlsRequest):
     pipeline = factory.build_pipeline(len(request.urls), request.provider)
 
-    def stream_and_store():
-        for chunk in pipeline.stream_from_urls(request.urls):
-            import json as _json
-            try:
-                parsed = _json.loads(chunk.strip())
-                if parsed.get("type") == "video":
-                    vid = parsed["data"]
-                    transcript_store[vid["video_id"]] = vid.pop("transcript_text", "")
-            except Exception:
-                pass
-            yield chunk
-
-    return StreamingResponse(stream_and_store(), media_type="application/x-ndjson")
+    return StreamingResponse(
+        _relay_pipeline_stream(pipeline.stream_from_urls(request.urls)),
+        media_type="application/x-ndjson",
+    )
 
 
 @app.post("/summarize/stream")
 def summarize_stream_endpoint(request: SummarizeRequest):
     pipeline = factory.build_pipeline(request.max_videos, request.provider)
 
-    def stream_and_store():
-        for chunk in pipeline.stream(
+    return StreamingResponse(
+        _relay_pipeline_stream(pipeline.stream(
             request.query,
             published_after_year=request.published_after_year,
             published_before_year=request.published_before_year,
@@ -249,18 +268,9 @@ def summarize_stream_endpoint(request: SummarizeRequest):
             exclude_keywords=request.exclude_keywords,
             duration=request.duration,
             min_views=request.min_views,
-        ):
-            import json as _json
-            try:
-                parsed = _json.loads(chunk.strip())
-                if parsed.get("type") == "video":
-                    vid = parsed["data"]
-                    transcript_store[vid["video_id"]] = vid.pop("transcript_text", "")
-            except Exception:
-                pass
-            yield chunk
-
-    return StreamingResponse(stream_and_store(), media_type="application/x-ndjson")
+        )),
+        media_type="application/x-ndjson",
+    )
 
 
 class AskRequest(BaseModel):
@@ -360,15 +370,7 @@ async def search_by_image_stream(
 
     def stream_and_store():
         yield _json.dumps({"type": "query", "message": search_query}) + "\n"
-        for chunk in pipeline.stream(search_query, **filter_kwargs):
-            try:
-                parsed = _json.loads(chunk.strip())
-                if parsed.get("type") == "video":
-                    vid = parsed["data"]
-                    transcript_store[vid["video_id"]] = vid.pop("transcript_text", "")
-            except Exception:
-                pass
-            yield chunk
+        yield from _relay_pipeline_stream(pipeline.stream(search_query, **filter_kwargs))
 
     return StreamingResponse(stream_and_store(), media_type="application/x-ndjson")
 
@@ -445,15 +447,7 @@ async def search_by_voice_stream(
 
     def stream_and_store():
         yield _json.dumps({"type": "query", "message": search_query, "transcription": transcription_text}) + "\n"
-        for chunk in pipeline.stream(search_query, **filter_kwargs):
-            try:
-                parsed = _json.loads(chunk.strip())
-                if parsed.get("type") == "video":
-                    vid = parsed["data"]
-                    transcript_store[vid["video_id"]] = vid.pop("transcript_text", "")
-            except Exception:
-                pass
-            yield chunk
+        yield from _relay_pipeline_stream(pipeline.stream(search_query, **filter_kwargs))
 
     return StreamingResponse(stream_and_store(), media_type="application/x-ndjson")
 
@@ -517,15 +511,7 @@ def search_by_video_stream(request: VideoSearchRequest):
 
     def stream_and_store():
         yield _json.dumps({"type": "query", "message": search_query}) + "\n"
-        for chunk in pipeline.stream(search_query, **filter_kwargs):
-            try:
-                parsed = _json.loads(chunk.strip())
-                if parsed.get("type") == "video":
-                    vid = parsed["data"]
-                    transcript_store[vid["video_id"]] = vid.pop("transcript_text", "")
-            except Exception:
-                pass
-            yield chunk
+        yield from _relay_pipeline_stream(pipeline.stream(search_query, **filter_kwargs))
 
     return StreamingResponse(stream_and_store(), media_type="application/x-ndjson")
 
