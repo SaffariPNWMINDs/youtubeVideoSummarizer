@@ -164,7 +164,7 @@ def auth_callback(code: str, state: str = None):
 
     # Generate personalized greeting via LLM
     from openai import OpenAI
-    llm = OpenAI()
+    llm = OpenAI(api_key=settings.openai_api_key)
     context = f"User's name: {name}\nSubscribed channels: {', '.join(subscriptions)}\nRecently liked videos: {', '.join(liked_titles)}"
     response = llm.chat.completions.create(
         model="gpt-4o-mini",
@@ -198,7 +198,7 @@ def get_greeting(session: str):
 
     # Regenerate greeting each time for freshness
     from openai import OpenAI
-    llm = OpenAI()
+    llm = OpenAI(api_key=settings.openai_api_key)
     context = f"User's name: {user['name']}\nSubscribed channels: {', '.join(user['subscriptions'])}"
     response = llm.chat.completions.create(
         model="gpt-4o-mini",
@@ -284,7 +284,7 @@ def ask(request: AskRequest):
 
     context = "\n\n".join(relevant_chunks)
     from openai import OpenAI
-    llm = OpenAI()
+    llm = OpenAI(api_key=settings.openai_api_key)
 
     def stream_answer():
         for chunk in llm.chat.completions.create(
@@ -325,7 +325,7 @@ async def search_by_image_stream(
     b64 = base64.b64encode(image_bytes).decode("utf-8")
     mime = image.content_type or "image/jpeg"
 
-    llm = OpenAI()
+    llm = OpenAI(api_key=settings.openai_api_key)
     user_hint = f"\n\nUser's additional context: {description}" if description.strip() else ""
     vision_response = llm.chat.completions.create(
         model="gpt-4o",
@@ -402,7 +402,7 @@ async def search_by_voice_stream(
     }
     ext = ext_map.get(content_type, "webm")
 
-    llm = OpenAI()
+    llm = OpenAI(api_key=settings.openai_api_key)
 
     # Step 1: Transcribe with Whisper (handles speech; returns best-effort for music/sounds)
     with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp:
@@ -475,7 +475,7 @@ class VideoSearchRequest(BaseModel):
 @app.post("/search-by-video/stream")
 def search_by_video_stream(request: VideoSearchRequest):
     from openai import OpenAI
-    llm = OpenAI()
+    llm = OpenAI(api_key=settings.openai_api_key)
 
     content = [
         {
