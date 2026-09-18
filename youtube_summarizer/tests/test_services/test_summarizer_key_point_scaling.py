@@ -52,10 +52,12 @@ class TestClaudeSummarizerKeyPointScaling:
         assert call_kwargs["max_tokens"] == 600
 
     def test_long_video_requests_more_key_points_and_bigger_budget(self):
+        # 19 min — long enough to scale up the key point count, but still
+        # under the 20-min chunking threshold, so this stays a single call.
         call_kwargs = self._summarize_with_mocked_client(
-            duration_seconds=120 * 60, key_points=[f"point {i}" for i in range(13)]
+            duration_seconds=19 * 60, key_points=[f"point {i}" for i in range(7)]
         )
-        assert "exactly 13 items" in call_kwargs["messages"][0]["content"]
+        assert "exactly 7 items" in call_kwargs["messages"][0]["content"]
         assert call_kwargs["max_tokens"] > 600
 
 
@@ -80,15 +82,21 @@ class TestOpenAISummarizerKeyPointScaling:
     def test_short_video_requests_fewer_key_points_and_smaller_budget(self):
         call_kwargs = self._summarize_with_mocked_client(
             duration_seconds=2 * 60,
-            key_points=[{"text": "a", "timestamp": 1}, {"text": "b", "timestamp": 2}, {"text": "c", "timestamp": 3}],
+            key_points=[
+                {"text": "a", "timestamp_marker": "00:01"},
+                {"text": "b", "timestamp_marker": "00:02"},
+                {"text": "c", "timestamp_marker": "00:03"},
+            ],
         )
         assert "exactly 3 items" in call_kwargs["messages"][0]["content"]
         assert call_kwargs["max_tokens"] == 800
 
     def test_long_video_requests_more_key_points_and_bigger_budget(self):
+        # 19 min — long enough to scale up the key point count, but still
+        # under the 20-min chunking threshold, so this stays a single call.
         call_kwargs = self._summarize_with_mocked_client(
-            duration_seconds=120 * 60,
-            key_points=[{"text": f"point {i}", "timestamp": i} for i in range(13)],
+            duration_seconds=19 * 60,
+            key_points=[{"text": f"point {i}", "timestamp_marker": f"00:{i:02d}"} for i in range(7)],
         )
-        assert "exactly 13 items" in call_kwargs["messages"][0]["content"]
+        assert "exactly 7 items" in call_kwargs["messages"][0]["content"]
         assert call_kwargs["max_tokens"] > 800

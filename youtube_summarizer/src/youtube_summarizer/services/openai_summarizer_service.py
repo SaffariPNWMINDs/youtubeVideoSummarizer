@@ -1,6 +1,8 @@
 import json
 import logging
-from typing import List
+import re
+from concurrent.futures import ThreadPoolExecutor
+from typing import List, Optional, Set, Tuple
 
 from openai import OpenAI
 
@@ -13,8 +15,17 @@ from youtube_summarizer.services.summary_scaling import (
     key_point_count_for_duration,
     scale_max_tokens,
 )
+from youtube_summarizer.services.transcript_chunking import (
+    allocate_key_points,
+    build_chunk_synthesis_prompt,
+    chunk_transcript,
+    merge_categories,
+    needs_chunking,
+)
 
 logger = logging.getLogger(__name__)
+
+_MARKER_PATTERN = re.compile(r"\[(\d{1,3}:\d{2})\]")
 
 class OpenAISummarizerService(BaseSummarizerService):
     """
@@ -43,21 +54,25 @@ class OpenAISummarizerService(BaseSummarizerService):
         logger.info(f"Summarizing '{video.title[:55]}'")
 
         key_point_count = key_point_count_for_duration(transcript.duration_seconds)
-        truncated_text = transcript.truncate_with_timestamps(settings.max_transcript_chars)
-        prompt = self._build_video_prompt(video, truncated_text, key_point_count)
 
-        raw_response = self._call_llm(
-            model=settings.openai_per_video_model,
-            prompt=prompt,
-            max_tokens=scale_max_tokens(800, key_point_count),
-        )
-        parsed = self._parse_json(raw_response)
+        if needs_chunking(transcript.duration_seconds):
+            return self._summarize_chunked(video, transcript, key_point_count)
+        return self._summarize_single_pass(video, transcript, key_point_count)
+
+    def _summarize_single_pass(
+        self, video: Video, transcript: Transcript, key_point_count: int
+    ) -> VideoSummary:
+        truncated_text = transcript.truncate_with_timestamps(settings.max_transcript_chars)
+        parsed = self._summarize_text(video, truncated_text, key_point_count)
+        valid_markers = self._extract_markers(truncated_text)
 
         timed = [
-            KeyPoint(text=kp["text"], timestamp=kp.get("timestamp"))
+            KeyPoint(
+                text=kp["text"],
+                timestamp=self._parse_timestamp_marker(kp.get("timestamp_marker"), valid_markers),
+            )
             for kp in parsed.get("key_points", [])
         ]
-
         categories = [
             CategoryBreakdown(category=c["category"], percentage=c["percentage"])
             for c in parsed.get("categories", [])
@@ -74,6 +89,109 @@ class OpenAISummarizerService(BaseSummarizerService):
             raw_summary=parsed["raw_summary"],
             categories=categories,
         )
+
+    def _summarize_chunked(
+        self, video: Video, transcript: Transcript, key_point_count: int
+    ) -> VideoSummary:
+        """
+        Long videos get split into time-ordered chunks, each summarized
+        independently (in parallel) so no single call has to attend to the
+        entire transcript at once — see transcript_chunking.py for why.
+        """
+        chunks = chunk_transcript(transcript)
+        chunk_durations = [c.duration_seconds for c in chunks]
+        key_point_allocation = allocate_key_points(key_point_count, chunk_durations)
+        logger.info(
+            f"  Long video ({transcript.duration_seconds / 60:.0f} min) — "
+            f"summarizing in {len(chunks)} chunks"
+        )
+
+        def summarize_chunk(chunk: Transcript, count: int) -> Optional[Tuple[dict, Set[str]]]:
+            text = chunk.truncate_with_timestamps(settings.max_transcript_chars)
+            try:
+                parsed = self._summarize_text(video, text, count, is_excerpt=True)
+                return parsed, self._extract_markers(text)
+            except Exception as e:
+                # One bad chunk (malformed JSON, a dropped request, ...)
+                # shouldn't sink the whole video — drop just this chunk's
+                # contribution and keep the rest.
+                logger.warning(f"  Chunk summarization failed, skipping it: {e}")
+                return None
+
+        with ThreadPoolExecutor(max_workers=min(len(chunks), 4)) as executor:
+            futures = [
+                executor.submit(summarize_chunk, chunk, count)
+                for chunk, count in zip(chunks, key_point_allocation)
+            ]
+            raw_results = [f.result() for f in futures]
+
+        surviving = [
+            (chunk, result)
+            for chunk, result in zip(chunks, raw_results)
+            if result is not None
+        ]
+        if not surviving:
+            logger.warning("  All chunks failed — falling back to a single pass")
+            return self._summarize_single_pass(video, transcript, key_point_count)
+
+        results = [r for _, r in surviving]
+        surviving_durations = [c.duration_seconds for c, _ in surviving]
+
+        # Each chunk's timestamps are validated against ONLY that chunk's
+        # own markers — a marker copied from a different chunk is just as
+        # invalid as a fabricated one.
+        timed_key_points = [
+            KeyPoint(
+                text=kp["text"],
+                timestamp=self._parse_timestamp_marker(kp.get("timestamp_marker"), markers),
+            )
+            for parsed, markers in results
+            for kp in parsed.get("key_points", [])
+        ]
+        chunk_summaries = [parsed["raw_summary"] for parsed, _ in results]
+        chunk_categories = [
+            [
+                CategoryBreakdown(category=c["category"], percentage=c["percentage"])
+                for c in parsed.get("categories", [])
+            ]
+            for parsed, _ in results
+        ]
+        merged_categories = merge_categories(chunk_categories, surviving_durations)
+        final_summary = self._synthesize_summary(video, chunk_summaries)
+
+        return VideoSummary(
+            video_id=video.video_id,
+            title=video.title,
+            channel_name=video.channel_name,
+            view_count=video.view_count,
+            video_url=video.url,
+            key_points=[kp.text for kp in timed_key_points],
+            key_points_timed=timed_key_points,
+            raw_summary=final_summary,
+            categories=merged_categories,
+        )
+
+    def _summarize_text(
+        self, video: Video, transcript_text: str, key_point_count: int, is_excerpt: bool = False
+    ) -> dict:
+        prompt = self._build_video_prompt(video, transcript_text, key_point_count, is_excerpt)
+        raw_response = self._call_llm(
+            model=settings.openai_per_video_model,
+            prompt=prompt,
+            max_tokens=scale_max_tokens(800, key_point_count),
+        )
+        return self._parse_json(raw_response)
+
+    def _synthesize_summary(self, video: Video, chunk_summaries: List[str]) -> str:
+        try:
+            prompt = build_chunk_synthesis_prompt(video.title, chunk_summaries)
+            raw_response = self._call_llm(
+                model=settings.openai_per_video_model, prompt=prompt, max_tokens=250
+            )
+            return self._parse_json(raw_response)["raw_summary"]
+        except Exception as e:
+            logger.warning(f"  Summary synthesis failed, using first chunk's summary: {e}")
+            return chunk_summaries[0]
 
     def aggregate_summaries(
         self, query: str, summaries: List[VideoSummary]
@@ -112,6 +230,45 @@ class OpenAISummarizerService(BaseSummarizerService):
 
 
     @staticmethod
+    def _extract_markers(transcript_text: str) -> Set[str]:
+        """All [MM:SS] markers that literally appear in this transcript text."""
+        return set(_MARKER_PATTERN.findall(transcript_text))
+
+    @staticmethod
+    def _parse_timestamp_marker(marker, valid_markers: Optional[Set[str]] = None) -> Optional[int]:
+        """
+        Converts a "[MM:SS]" marker the model copied verbatim from the
+        transcript into seconds. Asking the model to copy a marker instead
+        of computing seconds itself avoids arithmetic mistakes it would
+        occasionally make — e.g. returning the raw minute number (45)
+        instead of the actual elapsed seconds (2705) for content near
+        [45:05], especially for chunks starting deep into a long video.
+
+        Two layers of defense, because prompt wording alone isn't reliable:
+        1. A bare number with no colon (e.g. "45") is exactly what the
+           original mistake looks like — indistinguishable from a correct
+           raw-seconds value, so it's dropped rather than guessed.
+        2. When summarizing one excerpt of a longer video, the model can
+           also fabricate a well-formed but WRONG marker by treating the
+           excerpt as if it starts its own clock at 0:00 (e.g. returning
+           "00:45" for content actually in the 45-60 min chunk). If
+           `valid_markers` is given (the markers that actually appear in
+           THIS chunk's own transcript text), anything not literally in
+           that set is rejected rather than trusted.
+        """
+        if marker is None:
+            return None
+        text = str(marker).strip().strip("[]")  # model sometimes copies the brackets too
+        if ":" not in text:
+            return None
+        if valid_markers is not None and text not in valid_markers:
+            return None
+        minutes_str, _, seconds_str = text.partition(":")
+        if not (minutes_str.isdigit() and seconds_str.isdigit()):
+            return None
+        return int(minutes_str) * 60 + int(seconds_str)
+
+    @staticmethod
     def _parse_json(raw: str) -> dict:
         """
         Strips markdown code fences if present, then parses JSON.
@@ -125,8 +282,17 @@ class OpenAISummarizerService(BaseSummarizerService):
         return json.loads(text)
 
     @staticmethod
-    def _build_video_prompt(video: Video, transcript_text: str, key_point_count: int) -> str:
-        return f"""You are summarizing a YouTube video transcript. Be concise and factual.
+    def _build_video_prompt(
+        video: Video, transcript_text: str, key_point_count: int, is_excerpt: bool = False
+    ) -> str:
+        subject = "one excerpt from a longer YouTube video's transcript" if is_excerpt else "a YouTube video transcript"
+        breadth_note = (
+            "Cover only what THIS EXCERPT discusses — you are not seeing the full video, "
+            "so don't imply otherwise."
+            if is_excerpt
+            else "Cover the full breadth of what the video discusses — don't repeat the same idea in different words."
+        )
+        return f"""You are summarizing {subject}. Be concise and factual.
 
 Video title: {video.title}
 Channel: {video.channel_name}
@@ -138,8 +304,8 @@ Transcript (timestamps appear as [MM:SS] every ~30 seconds):
 Return ONLY a JSON object (no markdown, no explanation) with these exact keys:
 {{
   "key_points": [
-    {{"text": "point 1", "timestamp": 45}},
-    {{"text": "point 2", "timestamp": 134}}
+    {{"text": "point 1", "timestamp_marker": "00:45"}},
+    {{"text": "point 2", "timestamp_marker": "02:14"}}
   ],
   "raw_summary": "2-3 sentence prose summary of the main content.",
   "categories": [
@@ -150,8 +316,8 @@ Return ONLY a JSON object (no markdown, no explanation) with these exact keys:
 }}
 
 Rules:
-- key_points: exactly {key_point_count} items, each under 20 words, written as statements not questions. Cover the full breadth of what the video discusses — don't repeat the same idea in different words.
-- timestamp: seconds from video start where this topic is discussed (integer). Use the [MM:SS] markers in the transcript to estimate. If unsure, omit (null).
+- key_points: exactly {key_point_count} items, each under 20 words, written as statements not questions. {breadth_note}
+- timestamp_marker: the [MM:SS] marker COPIED EXACTLY, character for character, from one of the bracketed tags in the transcript above, closest to where this point is discussed. These markers are absolute video time — even though this transcript may only be one excerpt, the markers do NOT restart at 00:00 for it. Never invent, offset, or recalculate a marker; only copy one that literally appears above. If unsure, omit (null).
 - raw_summary: plain prose, under 100 words
 - categories: 3 to 6 topics freely identified from the content, percentages must sum to 100
 - JSON only — no markdown fences, no extra text"""

@@ -27,7 +27,11 @@ class Settings(BaseSettings):
 
     # Pipeline tuning
     max_videos: int = 10
-    max_transcript_chars: int = 50_000   # ~12k tokens, safe for any model
+    # ~75k tokens. gpt-4o-mini (128k context) and claude-haiku-4-5 (200k
+    # context) both have far more headroom than that — 50k was cutting off
+    # real content on anything past ~30-45 min of video. This still leaves
+    # a comfortable margin below either model's window for prompt + output.
+    max_transcript_chars: int = 300_000
     pipeline_max_workers: int = 5        # concurrent workers for the map stage (transcript fetch + summarize)
     claude_per_video_model: str = "claude-haiku-4-5"
     claude_aggregate_model: str = "claude-sonnet-4-6"

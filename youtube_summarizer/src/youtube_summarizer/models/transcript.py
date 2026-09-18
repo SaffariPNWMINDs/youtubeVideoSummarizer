@@ -1,5 +1,8 @@
+import logging
 from pydantic import BaseModel, computed_field
 from typing import List
+
+logger = logging.getLogger(__name__)
 
 
 class TranscriptSegment(BaseModel):
@@ -64,7 +67,10 @@ class Transcript(BaseModel):
                 last_stamped = seg.start
             lines.append(seg.text.strip())
         text = " ".join(lines)
-        return text[:max_chars] if len(text) > max_chars else text
+        if len(text) <= max_chars:
+            return text
+        self._log_truncation(text, max_chars)
+        return text[:max_chars]
 
     def truncate(self, max_chars: int) -> str:
         """
@@ -75,8 +81,23 @@ class Transcript(BaseModel):
         if len(text) <= max_chars:
             return text
 
+        self._log_truncation(text, max_chars)
         truncated = text[:max_chars]
         last_period = truncated.rfind(".")
         if last_period > max_chars * 0.8:       # only cut at sentence if close enough
             return truncated[: last_period + 1]
         return truncated
+
+    def _log_truncation(self, text: str, max_chars: int) -> None:
+        """
+        Truncation silently drops the tail of the video's content from the
+        LLM's input — for a long video that can mean losing everything past
+        some cutoff, with no signal that anything was lost. Log it loudly
+        enough to notice.
+        """
+        dropped_pct = 100 * (1 - max_chars / len(text))
+        logger.warning(
+            f"Transcript for {self.video_id} truncated: {len(text):,} chars "
+            f"({self.duration_seconds / 60:.0f} min) → {max_chars:,} chars "
+            f"({dropped_pct:.0f}% of content dropped)"
+        )
